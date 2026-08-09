@@ -1,0 +1,86 @@
+# ============================
+# Confidential planning docs — not for GitHub
+# ============================
+# These contain proprietary architecture/strategy decisions and should
+# stay local even if this repo (or parts of it) become public/shared.
+RubricEye_PRD.md
+RubricEye_TechDoc.md
+RubricEye_Architecture.md
+RubricEye_Roadmap.md
+RubricEye_FutureAdditions.md
+DOCS/mini_grader.py
+
+# ============================
+# Secrets — never commit these
+# ============================
+.env
+.env.local
+.env.*.local
+*api_key*
+*.pem
+*.key
+
+# ============================
+# Python (backend)
+# ============================
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+venv/
+.venv/
+env/
+ENV/
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ============================
+# Node / React / Electron (frontend)
+# ============================
+node_modules/
+dist/
+build/
+out/
+.electron-builder/
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.eslintcache
+
+# ============================
+# Application data — never commit real project/answer-sheet data
+# ============================
+rubriceye_data/
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Blank booklets, question papers, and answer sheets uploaded during
+# local testing — these may contain real handwriting/test data and
+# should never be pushed to a shared repo
+/uploads/
+/test_data/
+*.pdf
+!docs/**/*.pdf
+
+# ============================
+# OS / Editor cruft
+# ============================
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# ============================
+# Misc
+# ============================
+*.tmp
+*.bak
+coverage/
