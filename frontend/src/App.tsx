@@ -1,0 +1,43 @@
+import { Eye, Server } from "lucide-react";
+import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
+import AnswerSheetDetailPage from "./pages/AnswerSheetDetail";
+import CreateProject from "./pages/CreateProject";
+import ProjectDetailPage from "./pages/ProjectDetail";
+import ProjectList from "./pages/ProjectList";
+import TemplateMapReview from "./pages/TemplateMapReview";
+import UploadAnswerSheet from "./pages/UploadAnswerSheet";
+import "./styles.css";
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <div className="app-shell">
+        <header className="app-header">
+          <Link to="/" className="brand-container">
+            <div className="brand-logo">
+              <Eye size={20} color="white" />
+            </div>
+            <span className="brand-title">RubricEye</span>
+            <span className="brand-tag">Phase 1 Infra</span>
+          </Link>
+          <div className="header-status">
+            <Server size={15} />
+            <span>Local Backend API</span>
+            <span className="status-dot"></span>
+          </div>
+        </header>
+
+        <main className="app-main">
+          <Routes>
+            <Route path="/" element={<ProjectList />} />
+            <Route path="/projects/new" element={<CreateProject />} />
+            <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
+            <Route path="/projects/:projectId/template-map" element={<TemplateMapReview />} />
+            <Route path="/projects/:projectId/upload" element={<UploadAnswerSheet />} />
+            <Route path="/projects/:projectId/answer-sheets/:sheetId" element={<AnswerSheetDetailPage />} />
+          </Routes>
+        </main>
+      </div>
+    </BrowserRouter>
+  );
+}
