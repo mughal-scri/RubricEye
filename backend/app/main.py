@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db.init_db import init_db
-from app.routes import answer_sheets, projects, template_map
+from app.routes import answer_sheets, grading, projects, question_bank, question_groups, template_map
 from app.services.storage import ensure_data_dirs
 
 
@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="RubricEye API", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="RubricEye API", version="0.2.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -32,6 +32,9 @@ app.add_middleware(
 app.include_router(projects.router)
 app.include_router(template_map.router)
 app.include_router(answer_sheets.router)
+app.include_router(grading.router)
+app.include_router(question_bank.router)
+app.include_router(question_groups.router)
 
 
 @app.get("/health")

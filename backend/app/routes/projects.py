@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.db.database import get_db
-from app.db.models import Project, TemplateMapPage
+from app.db.models import Project, QuestionBankItem, TemplateMapPage
 from app.schemas.models import ProjectDetail, ProjectSummary
 from app.services import storage
 from app.services.pdf_pipeline import pdf_to_ordered_images
+from app.services.question_bank_extractor import extract_question_bank
 from app.services.template_derivation import derive_template_map, regions_to_json
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -53,6 +54,40 @@ def _run_template_derivation(db: Session, project: Project) -> None:
             regions_json=regions_to_json(regions),
         )
         db.add(db_page)
+    db.commit()
+
+
+def _run_question_bank_extraction(db: Session, project: Project) -> None:
+    """Phase 2 §5: auto-extract QuestionBankItem rows from the rubric PDF at creation
+    time. Best-effort — always reviewed/corrected by the examiner in Question Bank
+    Setup before locking (confirm_question_bank), never used unreviewed.
+
+    Edge Case D: if the rubric has no real text layer (scanned, not typeset), this
+    intentionally creates zero rows rather than garbled ones — the examiner falls
+    back to manual entry via POST /{project_id}/question-bank in that case.
+    """
+    db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project.id).delete()
+    db.commit()
+
+    result = extract_question_bank(project.rubric_file_path)
+    if not result.has_text_layer:
+        project.question_bank_marks_warning = (
+            "The rubric PDF appears to have no extractable text layer (likely a scan). "
+            "Auto-extraction was skipped — add questions manually in Question Bank Setup."
+        )
+        db.commit()
+        return
+
+    for item in result.items:
+        db.add(
+            QuestionBankItem(
+                id=str(uuid.uuid4()),
+                project_id=project.id,
+                question_number=item.question_number,
+                marks_possible=item.marks_possible,
+                key_points=item.key_points,
+            )
+        )
     db.commit()
 
 
@@ -106,12 +141,14 @@ async def create_project(
         rubric_locked=True,
         template_map_confirmed=False,
         template_map_status="pending",
+        question_bank_confirmed=False,
     )
     db.add(project)
     db.commit()
     db.refresh(project)
 
     _run_template_derivation(db, project)
+    _run_question_bank_extraction(db, project)
     db.refresh(project)
     return _project_to_detail(project)
 

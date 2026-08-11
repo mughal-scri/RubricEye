@@ -19,6 +19,13 @@ DOCS/mini_grader.py
 *api_key*
 *.pem
 *.key
+.cursor
+.claude
+.cursor/
+.claude/
+*.worktrees/
+./temp/*
+temp/
 
 # ============================
 # Python (backend)

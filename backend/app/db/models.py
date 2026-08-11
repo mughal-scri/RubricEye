@@ -1,7 +1,15 @@
 import uuid
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -29,6 +37,15 @@ class Project(Base):
     template_map_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
     alignment_reference_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    # --- Phase 2 additions ---
+    # Not explicitly in the Phase 2 plan's schema table, but required by the plan's own UI spec:
+    # ProjectDetail.tsx needs a "Grade" button "disabled until question bank is set up", which
+    # requires a durable lock flag (mirrors template_map_confirmed's pattern exactly).
+    question_bank_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Cached warning from Edge Case H (marks cross-check against paper's stated total),
+    # populated when question bank is confirmed. Null if no mismatch or no total was detected.
+    question_bank_marks_warning: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     template_map_pages: Mapped[list["TemplateMapPage"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
@@ -36,6 +53,9 @@ class Project(Base):
         back_populates="project", cascade="all, delete-orphan"
     )
     question_bank_items: Mapped[list["QuestionBankItem"]] = relationship(
+        back_populates="project", cascade="all, delete-orphan"
+    )
+    question_groups: Mapped[list["QuestionGroup"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
     )
 
@@ -63,7 +83,17 @@ class AnswerSheet(Base):
     question_region_map_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
 
+    # --- Phase 2 addition ---
+    # Sheet-level grading status, independent of individual GradingResult.grading_status rows.
+    # Edge Case C (idempotency): lets a retry short-circuit instantly if the whole sheet is
+    # already "complete" without touching per-question rows at all.
+    # One of: not_graded | in_progress | complete | failed
+    grading_status: Mapped[str] = mapped_column(String(32), default="not_graded", nullable=False)
+
     project: Mapped["Project"] = relationship(back_populates="answer_sheets")
+    grading_results: Mapped[list["GradingResult"]] = relationship(
+        back_populates="answer_sheet", cascade="all, delete-orphan"
+    )
 
 
 class QuestionBankItem(Base):
@@ -77,3 +107,77 @@ class QuestionBankItem(Base):
     question_image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="question_bank_items")
+
+
+class QuestionGroup(Base):
+    """Defines compulsory vs. choose-N-of-M question groups (TechDoc §2.4).
+
+    `question_numbers` uses the SAME granularity the examiner used when confirming
+    QuestionBankItem rows (e.g. "3a"/"3b" if parts were split out, or "3" if not).
+    See services/question_grouping.py for how this is resolved against segmentation
+    region-map keys, which are always part-level.
+    """
+
+    __tablename__ = "question_groups"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    project_id: Mapped[str] = mapped_column(String(36), ForeignKey("projects.id"), nullable=False)
+    group_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    selection_type: Mapped[str] = mapped_column(String(32), nullable=False)  # compulsory | choose_n_of_m
+    question_numbers_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    n_required: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    project: Mapped["Project"] = relationship(back_populates="question_groups")
+
+
+class GradingResult(Base):
+    """One row per gradable question unit per answer sheet.
+
+    `question_number` matches QuestionBankItem.question_number for the same project
+    (i.e. it may be a bare question number like "2" or a part-level key like "3a",
+    whatever granularity the examiner confirmed in Question Bank Setup).
+    """
+
+    __tablename__ = "grading_results"
+    __table_args__ = (
+        # Edge Case C (idempotency): GradingResult writes must be upserts keyed on
+        # (answer_sheet_id, question_number), never blind inserts. This constraint is
+        # what makes that enforceable at the DB level, not just by convention in code.
+        UniqueConstraint("answer_sheet_id", "question_number", name="uq_grading_result_sheet_question"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    answer_sheet_id: Mapped[str] = mapped_column(String(36), ForeignKey("answer_sheets.id"), nullable=False)
+    question_number: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    ai_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ai_total_possible: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    ai_rationale: Mapped[str | None] = mapped_column(Text, nullable=True)  # human-readable summary
+    part_scores_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    transcription_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    flags_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    confidence: Mapped[str] = mapped_column(String(16), default="low", nullable=False)  # high|medium|low
+
+    # Edge Case A tie-in: carried through from segmentation if present, defaults False
+    # for Phase 1 sheets that predate the truncation-flag addition.
+    truncation_flag: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Ink-density pre-filter classification (services/ink_density.py)
+    ink_status: Mapped[str] = mapped_column(String(16), default="attempted", nullable=False)
+    ink_density_ratio: Mapped[float | None] = mapped_column(nullable=True)
+
+    # First-N choice-question bookkeeping (services/first_n_filter.py)
+    choice_status: Mapped[str] = mapped_column(String(24), default="graded", nullable=False)
+    # graded | skipped_blank | skipped_beyond_n | flagged_ambiguous | no_regions
+
+    human_confirmed_score: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    human_reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Edge Case C (idempotency): pending | in_progress | complete | failed
+    grading_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    answer_sheet: Mapped["AnswerSheet"] = relationship(back_populates="grading_results")
