@@ -17,7 +17,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.services import ink_density
-from app.services.question_grouping import group_question_bank_by_group, resolve_region_keys_for_question, split_base_and_part
+from app.services.question_grouping import (
+    build_part_sort_key,
+    group_question_bank_by_group,
+    resolve_region_keys_for_question,
+    split_base_and_part,
+)
 
 
 @dataclass
@@ -38,13 +43,26 @@ class FilteredQuestions:
     no_regions: list[str] = field(default_factory=list)
 
 
-def _sort_key(question_number: str) -> tuple[int, str]:
-    base, part = split_base_and_part(question_number)
-    try:
-        base_int = int(base)
-    except ValueError:
-        base_int = 10**9
-    return (base_int, part)
+def _sort_members(members: list[str]) -> list[str]:
+    """Ascending order across a sibling group, correct for both plain-letter parts
+    ("2a" < "2b") and roman-numeral parts ("2ii" < "2v" < "2vii" -- NOT the
+    lexicographic string order, which would incorrectly place "2ix" before "2v").
+    The part-label scheme (letter vs. roman) is decided once per group via
+    `build_part_sort_key`, from the whole sibling set, not per-label in isolation.
+    """
+    split = [split_base_and_part(m) for m in members]
+    sibling_parts = [part for _, part in split]
+    part_key_fn = build_part_sort_key(sibling_parts)
+
+    def key(question_number: str) -> tuple:
+        base, part = split_base_and_part(question_number)
+        try:
+            base_int = int(base)
+        except ValueError:
+            base_int = 10**9
+        return (base_int,) + part_key_fn(part)
+
+    return sorted(members, key=key)
 
 
 def _find_region_image_paths(regions_dir: Path, region_keys: list[str]) -> list[str]:
@@ -86,7 +104,7 @@ def apply_first_n_filter(
     for group_id, members in by_group.items():
         group = groups_by_id.get(group_id) if group_id else None
         selection_type = group["selection_type"] if group else "compulsory"
-        members_sorted = sorted(members, key=_sort_key)
+        members_sorted = _sort_members(members)
 
         if selection_type == "choose_n_of_m":
             n_required = group.get("n_required") or 0

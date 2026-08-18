@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
+import shutil
 import uuid
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -160,3 +162,36 @@ def reject_rubric_update(project_id: str) -> None:
         status_code=403,
         detail="Rubric is locked and cannot be modified after project creation.",
     )
+
+
+@router.delete("/{project_id}", status_code=204)
+def delete_project(project_id: str, db: Session = Depends(get_db)) -> Response:
+    """Permanently delete a project and all its data (DB rows + filesystem).
+
+    DB delete is committed first, then filesystem cleanup is attempted.
+    If filesystem cleanup fails the orphaned directory is logged, not re-raised —
+    an orphaned directory is harmless; orphaned DB rows pointing at missing files
+    are not. Returns 404 if the project does not exist.
+    """
+    project = db.get(Project, project_id)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found.")
+
+    project_dir = storage.project_dir(project_id)
+
+    # SQLAlchemy cascade="all, delete-orphan" on all relationships removes
+    # TemplateMapPages, AnswerSheets, QuestionBankItems, QuestionGroups,
+    # and GradingResults in one flush.
+    db.delete(project)
+    db.commit()
+
+    # Filesystem cleanup (best-effort — DB is already clean).
+    try:
+        if project_dir.exists():
+            shutil.rmtree(project_dir)
+    except Exception as exc:  # noqa: BLE001
+        logging.getLogger(__name__).warning(
+            "Could not remove project directory %s after deletion: %s", project_dir, exc
+        )
+
+    return Response(status_code=204)

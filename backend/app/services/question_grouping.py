@@ -11,21 +11,97 @@ be EITHER a bare number ("3", aggregating all its parts) OR a full part-level ke
 decided by whatever the examiner confirms in Question Bank Setup — and resolves either
 choice correctly against the region map. This is the piece of Phase 2 the source
 documents didn't specify; see PHASE2_NOTES.md for the full rationale.
+
+Part labels may be a single letter ("a", "b", ...) OR a lowercase roman numeral
+("i", "ii", ... "vii", ...) — both are real exam conventions, confirmed by testing
+against Abdullah's actual mock exam (Q2's seven sub-parts are roman numerals, not
+letters). The two are genuinely ambiguous in isolation ("v" is a valid single letter
+AND a valid roman numeral) — resolved by looking at the whole sibling group a part
+belongs to, not each label alone: if ANY sibling is a multi-character roman numeral
+(e.g. "vii"), the whole group is treated as roman-numeral, since no real exam mixes
+both schemes within one question's sub-parts. See `build_part_sort_key`.
 """
 
 from __future__ import annotations
 
 import re
 
-_KEY_PATTERN = re.compile(r"^(\d+)([a-z]?)$", re.IGNORECASE)
+# Digits, then the ENTIRE trailing letter run as one unit -- whether that's a single
+# letter ("3a") or a multi-character roman numeral ("2vii"). Splitting on "one letter
+# max" (the original version of this regex) silently broke on anything past "a" in a
+# roman-numeral scheme; capturing the whole run and classifying it separately (see
+# `build_part_sort_key`) handles both conventions correctly.
+_KEY_PATTERN = re.compile(r"^(\d+)([a-zA-Z]*)$")
+
+_ROMAN_VALUES = {"i": 1, "v": 5, "x": 10, "l": 50, "c": 100, "d": 500, "m": 1000}
 
 
 def split_base_and_part(key: str) -> tuple[str, str]:
-    """'3a' -> ('3', 'a'); '3' -> ('3', ''); anything unparseable -> (key, '')."""
+    """'3a' -> ('3', 'a'); '2vii' -> ('2', 'vii'); '3' -> ('3', ''); anything
+    unparseable -> (key, '')."""
     match = _KEY_PATTERN.match(key.strip())
     if not match:
         return key.strip(), ""
     return match.group(1), match.group(2).lower()
+
+
+def roman_to_int(token: str) -> int | None:
+    """Returns the integer value of a lowercase roman numeral, or None if `token`
+    isn't a syntactically valid one. Validates by round-tripping (encoding the parsed
+    value back to a numeral and comparing) rather than just summing symbol values, so
+    malformed strings like "iiii" or "vx" are correctly rejected rather than silently
+    given a plausible-looking value.
+    """
+    token = token.lower()
+    if not token or any(ch not in _ROMAN_VALUES for ch in token):
+        return None
+    total = 0
+    previous_value = 0
+    for ch in reversed(token):
+        value = _ROMAN_VALUES[ch]
+        if value < previous_value:
+            total -= value
+        else:
+            total += value
+            previous_value = value
+    return total if _int_to_roman(total) == token else None
+
+
+def _int_to_roman(n: int) -> str:
+    table = [
+        (1000, "m"), (900, "cm"), (500, "d"), (400, "cd"),
+        (100, "c"), (90, "xc"), (50, "l"), (40, "xl"),
+        (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i"),
+    ]
+    result = []
+    for value, symbol in table:
+        while n >= value:
+            result.append(symbol)
+            n -= value
+    return "".join(result)
+
+
+def build_part_sort_key(sibling_parts: list[str]):
+    """Returns a sort-key function for a group of sibling part labels, choosing the
+    roman-numeral or plain-letter convention based on the WHOLE group rather than
+    guessing per label. A lone "i" or "v" is genuinely ambiguous; a sibling like
+    "vii" is not, and settles it for the whole group.
+    """
+    uses_roman = any(len(part) > 1 and roman_to_int(part) is not None for part in sibling_parts)
+
+    def key(part: str) -> tuple:
+        if not part:
+            return (0,)
+        if uses_roman:
+            value = roman_to_int(part)
+            if value is not None:
+                return (1, value)
+            return (2, part)  # unrecognized -- sort after every valid roman numeral
+        if len(part) == 1 and part.isalpha():
+            return (1, ord(part) - ord("a"))
+        return (2, part)
+
+    return key
 
 
 def resolve_region_keys_for_question(question_number: str, region_map_keys: list[str]) -> list[str]:

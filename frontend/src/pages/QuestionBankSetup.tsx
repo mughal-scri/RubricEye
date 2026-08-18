@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, CheckCircle2, Lock, Unlock, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -7,6 +7,7 @@ import {
   deleteQuestionBankItem,
   listQuestionBank,
   QuestionBankItem,
+  unlockQuestionBank,
   updateQuestionBankItem,
 } from "../api/client";
 
@@ -109,6 +110,23 @@ export default function QuestionBankSetup() {
     }
   };
 
+  const unlock = async () => {
+    if (!projectId) return;
+    setError("");
+    setMessage("");
+    setSaving(true);
+    try {
+      const data = await unlockQuestionBank(projectId);
+      setConfirmed(data.confirmed);
+      setWarning(null);
+      setMessage("Question bank unlocked for re-editing.");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!projectId) return null;
   if (loading) return <div style={{ textAlign: "center", padding: "3rem" }}>Loading question bank...</div>;
 
@@ -140,9 +158,13 @@ export default function QuestionBankSetup() {
           </p>
         </div>
 
-        {!confirmed && (
+        {!confirmed ? (
           <button type="button" onClick={confirmAndLock} disabled={saving || items.length === 0} className="btn btn-success">
             <Lock size={16} /> Confirm & Lock Question Bank
+          </button>
+        ) : (
+          <button type="button" onClick={unlock} disabled={saving} className="btn btn-secondary">
+            <Unlock size={16} /> Unlock for Re-editing
           </button>
         )}
       </div>

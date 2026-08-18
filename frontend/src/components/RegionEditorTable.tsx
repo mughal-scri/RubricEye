@@ -30,7 +30,7 @@ export default function RegionEditorTable({ rows, onChange, hoveredIndex, onHove
       {
         page_number: rows[0]?.page_number ?? 1,
         question_number: String(rows.length + 1),
-        part_label: "a",
+        part_label: "",
         bbox: [50, 50, 450, 200],
       },
     ]);

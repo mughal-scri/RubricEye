@@ -94,6 +94,10 @@ export function createProject(formData: FormData): Promise<ProjectDetail> {
   return request("/projects", { method: "POST", body: formData });
 }
 
+export function deleteProject(projectId: string): Promise<void> {
+  return request(`/projects/${projectId}`, { method: "DELETE" });
+}
+
 export function getTemplateMap(projectId: string): Promise<TemplateMapResponse> {
   return request(`/projects/${projectId}/template-map`);
 }
@@ -111,6 +115,10 @@ export function updateTemplateMap(
 
 export function confirmTemplateMap(projectId: string): Promise<TemplateMapResponse> {
   return request(`/projects/${projectId}/template-map/confirm`, { method: "POST" });
+}
+
+export function unlockTemplateMap(projectId: string): Promise<TemplateMapResponse> {
+  return request(`/projects/${projectId}/template-map/unlock`, { method: "POST" });
 }
 
 export function listAnswerSheets(projectId: string): Promise<AnswerSheetSummary[]> {
@@ -201,6 +209,10 @@ export function deleteQuestionBankItem(projectId: string, questionNumber: string
 
 export function confirmQuestionBank(projectId: string): Promise<QuestionBankConfirmResponse> {
   return request(`/projects/${projectId}/question-bank/confirm`, { method: "POST" });
+}
+
+export function unlockQuestionBank(projectId: string): Promise<QuestionBankListResponse> {
+  return request(`/projects/${projectId}/question-bank/unlock`, { method: "POST" });
 }
 
 // ============================================================

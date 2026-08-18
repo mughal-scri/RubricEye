@@ -1,4 +1,4 @@
-import { ArrowLeft, CheckCircle2, Save, Lock, AlertCircle, Layers } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Save, Lock, Unlock, Layers } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
@@ -7,6 +7,7 @@ import {
   getTemplateMap,
   TemplateMapResponse,
   TemplateRegionInput,
+  unlockTemplateMap,
   updateTemplateMap,
 } from "../api/client";
 import RegionEditorTable from "../components/RegionEditorTable";
@@ -99,6 +100,22 @@ export default function TemplateMapReview() {
     }
   };
 
+  const unlock = async () => {
+    if (!projectId) return;
+    setError("");
+    setMessage("");
+    setSaving(true);
+    try {
+      const updated = await unlockTemplateMap(projectId);
+      setTemplateMap(updated);
+      setMessage("Template map unlocked for re-editing.");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
   if (!projectId) return null;
   if (error) return <div className="alert alert-error">Error: {error}</div>;
   if (!templateMap || !currentPage) return <div style={{ textAlign: "center", padding: "3rem" }}>Loading template map...</div>;
@@ -128,7 +145,7 @@ export default function TemplateMapReview() {
           <p>Verify detected question bounding boxes on the blank booklet. Modify coordinates if needed.</p>
         </div>
 
-        {!templateMap.confirmed && (
+        {!templateMap.confirmed ? (
           <div style={{ display: "flex", gap: "0.75rem" }}>
             <button type="button" onClick={saveEdits} disabled={saving} className="btn btn-secondary">
               <Save size={16} /> Save Draft Edits
@@ -137,6 +154,10 @@ export default function TemplateMapReview() {
               <Lock size={16} /> Confirm & Lock Template Map
             </button>
           </div>
+        ) : (
+          <button type="button" onClick={unlock} disabled={saving} className="btn btn-secondary">
+            <Unlock size={16} /> Unlock for Re-editing
+          </button>
         )}
       </div>
 

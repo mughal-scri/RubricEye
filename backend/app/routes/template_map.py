@@ -154,3 +154,49 @@ def confirm_template_map(project_id: str, db: Session = Depends(get_db)) -> Temp
     db.commit()
 
     return _build_template_map_response(project, pages)
+
+
+@router.post("/{project_id}/template-map/unlock", response_model=TemplateMapResponse)
+def unlock_template_map(project_id: str, db: Session = Depends(get_db)) -> TemplateMapResponse:
+    """Unlock the template map for re-editing.
+
+    Blocked if any AnswerSheet has been uploaded against this project — those sheets
+    were segmented against the current confirmed map, so unlocking and changing regions
+    would make their segmentation data inconsistent. The examiner must delete all uploaded
+    answer sheets first (or start a new project) before the map can be re-edited.
+
+    If no answer sheets exist, unlocking is always safe: re-confirm resets the map file
+    on disk and re-locks it.
+    """
+    from app.db.models import AnswerSheet  # local import to avoid circular at module level
+
+    project = _get_project_or_404(project_id, db)
+    if not project.template_map_confirmed:
+        raise HTTPException(status_code=409, detail="Template map is not currently confirmed.")
+
+    sheet_count = (
+        db.query(AnswerSheet)
+        .filter(AnswerSheet.project_id == project_id)
+        .count()
+    )
+    if sheet_count > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{sheet_count} answer sheet(s) have already been uploaded and segmented "
+                "against the current template map. Delete all answer sheets first before "
+                "unlocking the template map for re-editing."
+            ),
+        )
+
+    project.template_map_confirmed = False
+    project.template_map_status = "needs_review"
+    db.commit()
+
+    pages = (
+        db.query(TemplateMapPage)
+        .filter(TemplateMapPage.project_id == project_id)
+        .order_by(TemplateMapPage.page_number)
+        .all()
+    )
+    return _build_template_map_response(project, pages)

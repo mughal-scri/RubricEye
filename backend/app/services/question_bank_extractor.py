@@ -21,6 +21,8 @@ from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 
+from app.services.question_grouping import roman_to_int
+
 # Matches top-level question headers: "Q.1", "Q1", "Question 2", or a bare "3." at
 # the start of a line.
 _TOP_HEADER = re.compile(
@@ -28,19 +30,33 @@ _TOP_HEADER = re.compile(
     re.IGNORECASE,
 )
 
-# Matches sub-part headers within a question's block: "(a)", "Part (a)", "a)", "a."
+# Matches sub-part headers within a question's block: "(a)", "Part (a)", "a)", "a.",
+# and the same forms with a roman numeral instead of a single letter ("(vii)", "vii.").
+# The broadened [a-zA-Z]+ over-matches on its own (e.g. a stray word at a line start
+# followed by a period) -- _is_valid_part_label() below filters those out, so only a
+# real single letter or a syntactically valid roman numeral survives as a match.
 _PART_HEADER = re.compile(
-    r"(?:Part\s*)?\(([a-z])\)|(?:^|\n)\s*([a-z])[).]\s",
+    r"(?:Part\s*)?\(([a-zA-Z]+)\)|(?:^|\n)\s*([a-zA-Z]+)[).]\s",
     re.IGNORECASE,
 )
 
 # Matches a marks value near a header: "(6 marks)", "- 6 marks", "[6]", "(6)"
 _MARKS_PATTERN = re.compile(r"(\d+)\s*marks?\b|\((\d+)\)|\[(\d+)\]", re.IGNORECASE)
 
-# Matches the paper's own stated total, e.g. "Total Marks: 53"
-_TOTAL_MARKS_PATTERN = re.compile(r"total\s*marks?\s*[:\-]?\s*(\d+)", re.IGNORECASE)
+# Matches the paper's own stated total -- "Total Marks: 53" or "Maximum Marks: 35"
+# (confirmed against a real mock exam that uses the latter phrasing; the original
+# version of this pattern only recognized "total", which silently found nothing on
+# that paper rather than warning on a real mismatch).
+_TOTAL_MARKS_PATTERN = re.compile(r"(?:total|maximum)\s*marks?\s*[:\-]?\s*(\d+)", re.IGNORECASE)
 
 MIN_TEXT_LAYER_CHARS = 40
+
+
+def _is_valid_part_label(token: str) -> bool:
+    token = token.lower()
+    if len(token) == 1 and token.isalpha():
+        return True
+    return roman_to_int(token) is not None
 
 
 @dataclass
@@ -94,7 +110,9 @@ def _split_question_blocks(full_text: str) -> list[tuple[str, str]]:
 
 
 def _extract_parts(question_number: str, block_text: str) -> list[QuestionBankItemData]:
-    part_matches = list(_PART_HEADER.finditer(block_text))
+    raw_matches = list(_PART_HEADER.finditer(block_text))
+    part_matches = [m for m in raw_matches if _is_valid_part_label(m.group(1) or m.group(2) or "")]
+
     if not part_matches:
         marks = _nearest_marks(block_text[:200])
         key_points = block_text.strip()[:2000]

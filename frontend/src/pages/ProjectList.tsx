@@ -1,14 +1,16 @@
-import { CheckCircle2, Clock, FolderPlus, Layers, FileCheck, ArrowRight, ShieldLock } from "lucide-react";
+import { CheckCircle2, Clock, FolderPlus, Layers, FileCheck, ArrowRight, ShieldLock, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { listProjects, ProjectSummary } from "../api/client";
+import { deleteProject, listProjects, ProjectSummary } from "../api/client";
 
 export default function ProjectList() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadProjects = () => {
+    setLoading(true);
     listProjects()
       .then((data) => {
         setProjects(data);
@@ -18,7 +20,27 @@ export default function ProjectList() {
         setError(String(err));
         setLoading(false);
       });
+  };
+
+  useEffect(() => {
+    loadProjects();
   }, []);
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!window.confirm(`Are you sure you want to permanently delete project "${name}"? This action cannot be undone.`)) {
+      return;
+    }
+    setDeletingId(id);
+    setError("");
+    try {
+      await deleteProject(id);
+      setProjects((prev) => prev.filter((p) => p.id !== id));
+    } catch (err) {
+      setError(`Failed to delete project: ${String(err)}`);
+    } finally {
+      setDeletingId(null);
+    }
+  };
 
   const totalProjects = projects.length;
   const confirmedTemplates = projects.filter((p) => p.template_map_confirmed).length;
@@ -126,9 +148,21 @@ export default function ProjectList() {
                 <span style={{ fontSize: "0.8rem", color: "var(--color-slate-600)" }}>
                   ID: <code style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>{project.id.slice(0, 8)}</code>
                 </span>
-                <Link to={`/projects/${project.id}`} className="btn btn-secondary" style={{ padding: "0.4rem 0.85rem", fontSize: "0.85rem" }}>
-                  Open <ArrowRight size={14} />
-                </Link>
+                <div style={{ display: "flex", gap: "0.5rem" }}>
+                  <button
+                    type="button"
+                    className="btn btn-danger"
+                    style={{ padding: "0.4rem 0.6rem", fontSize: "0.85rem" }}
+                    onClick={() => handleDelete(project.id, project.name)}
+                    disabled={deletingId === project.id}
+                    title="Delete project permanently"
+                  >
+                    <Trash2 size={14} />
+                  </button>
+                  <Link to={`/projects/${project.id}`} className="btn btn-secondary" style={{ padding: "0.4rem 0.85rem", fontSize: "0.85rem" }}>
+                    Open <ArrowRight size={14} />
+                  </Link>
+                </div>
               </div>
             </div>
           ))}
