@@ -1,91 +1,87 @@
 #!/usr/bin/env python3
-"""Validation script for Unlock-to-re-edit workflows and Project Deletion."""
+"""No-billed-call regression for unlock and soft-delete behavior."""
 
-import json
+from __future__ import annotations
+
+import io
 import os
 import shutil
-import sys
+import tempfile
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+ROOT = Path(tempfile.mkdtemp(prefix="rubriceye_trash_test_"))
+os.environ["RUBRICEYE_DATA_DIR"] = str(ROOT / "data")
+os.environ["RUBRICEYE_DASHSCOPE_API_KEY"] = ""
 
-os.environ["RUBRICEYE_DATA_DIR"] = "/tmp/rubriceye_unlock_delete_test"
-if Path(os.environ["RUBRICEYE_DATA_DIR"]).exists():
-    shutil.rmtree(os.environ["RUBRICEYE_DATA_DIR"])
+import pymupdf  # noqa: E402
+from fastapi.testclient import TestClient  # noqa: E402
 
 from app.main import app  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parent / "test_fixtures"
+
+def pdf_bytes(text: str) -> bytes:
+    document = pymupdf.open()
+    page = document.new_page(width=600, height=800)
+    page.insert_text((72, 100), text, fontsize=16)
+    payload = document.tobytes()
+    document.close()
+    return payload
+
+
+def files():
+    return {
+        "rubric": ("rubric.pdf", io.BytesIO(pdf_bytes("Question 1 [5]")), "application/pdf"),
+        "question_paper": ("question_paper.pdf", io.BytesIO(pdf_bytes("Maximum Marks: 5\nQuestion 1")), "application/pdf"),
+        "blank_booklet": ("blank_booklet.pdf", io.BytesIO(pdf_bytes("Blank booklet")), "application/pdf"),
+    }
 
 
 def main() -> int:
-    with TestClient(app) as client:
-        # 1. Create project
-        with open(FIXTURES / "rubric.pdf", "rb") as rubric, open(
-            FIXTURES / "question_paper.pdf", "rb"
-        ) as qp, open(FIXTURES / "blank_booklet.pdf", "rb") as blank:
-            create_resp = client.post(
-                "/projects",
-                data={"name": "Unlock & Delete Test Project"},
-                files={
-                    "rubric": ("rubric.pdf", rubric, "application/pdf"),
-                    "question_paper": ("question_paper.pdf", qp, "application/pdf"),
-                    "blank_booklet": ("blank_booklet.pdf", blank, "application/pdf"),
-                },
-            )
-        assert create_resp.status_code == 201, create_resp.text
-        project = create_resp.json()
-        project_id = project["id"]
-        print(f"✓ Project created: {project_id}")
+    try:
+        with TestClient(app) as client:
+            created = client.post("/projects", data={"name": "Unlock and Trash Test"}, files=files())
+            assert created.status_code == 201, created.text
+            project_id = created.json()["id"]
 
-        # 2. Confirm Template Map & Question Bank
-        confirm_tm_resp = client.post(f"/projects/{project_id}/template-map/confirm")
-        assert confirm_tm_resp.status_code == 200, confirm_tm_resp.text
-        assert confirm_tm_resp.json()["confirmed"] is True
-        print("✓ Template map confirmed")
+            template_confirm = client.post(f"/projects/{project_id}/template-map/confirm")
+            assert template_confirm.status_code == 200, template_confirm.text
+            question_bank = client.get(f"/projects/{project_id}/question-bank").json()
+            if not question_bank["items"]:
+                added = client.post(f"/projects/{project_id}/question-bank", params={"question_number": "1", "marks_possible": 5, "key_points": "Criterion"})
+                assert added.status_code == 201, added.text
+            question_confirm = client.post(f"/projects/{project_id}/question-bank/confirm")
+            assert question_confirm.status_code == 200, question_confirm.text
 
-        # Populate question bank if auto-extractor yielded zero items
-        qb_list = client.get(f"/projects/{project_id}/question-bank").json()
-        if not qb_list["items"]:
-            client.post(f"/projects/{project_id}/question-bank?question_number=1&marks_possible=5")
+            unlocked_template = client.post(f"/projects/{project_id}/template-map/unlock")
+            assert unlocked_template.status_code == 200, unlocked_template.text
+            assert unlocked_template.json()["confirmed"] is False
+            assert client.post(f"/projects/{project_id}/template-map/confirm").status_code == 200
 
-        confirm_qb_resp = client.post(f"/projects/{project_id}/question-bank/confirm")
-        assert confirm_qb_resp.status_code == 200, confirm_qb_resp.text
-        assert confirm_qb_resp.json()["confirmed"] is True
-        print("✓ Question bank confirmed")
+            unlocked_bank = client.post(f"/projects/{project_id}/question-bank/unlock")
+            assert unlocked_bank.status_code == 200, unlocked_bank.text
+            assert unlocked_bank.json()["confirmed"] is False
+            assert client.post(f"/projects/{project_id}/question-bank/confirm").status_code == 200
 
-        # 3. Test Unlock Template Map
-        unlock_tm_resp = client.post(f"/projects/{project_id}/template-map/unlock")
-        assert unlock_tm_resp.status_code == 200, unlock_tm_resp.text
-        assert unlock_tm_resp.json()["confirmed"] is False
-        assert unlock_tm_resp.json()["status"] == "needs_review"
-        print("✓ Template map unlocked for re-editing")
+            assert client.delete(f"/projects/{project_id}").status_code == 204
+            assert client.get(f"/projects/{project_id}").status_code == 404
+            trash = client.get("/projects/trash")
+            assert trash.status_code == 200, trash.text
+            assert any(item["id"] == project_id for item in trash.json())
 
-        # Re-confirm template map
-        client.post(f"/projects/{project_id}/template-map/confirm")
+            restored = client.post(f"/projects/{project_id}/restore")
+            assert restored.status_code == 200, restored.text
+            assert client.get(f"/projects/{project_id}").status_code == 200
 
-        # 4. Test Unlock Question Bank
-        unlock_qb_resp = client.post(f"/projects/{project_id}/question-bank/unlock")
-        assert unlock_qb_resp.status_code == 200, unlock_qb_resp.text
-        assert unlock_qb_resp.json()["confirmed"] is False
-        print("✓ Question bank unlocked for re-editing")
+            assert client.delete(f"/projects/{project_id}").status_code == 204
+            assert client.delete(f"/projects/{project_id}/hard").status_code == 204
+            assert client.get(f"/projects/{project_id}").status_code == 404
+            assert not any(item["id"] == project_id for item in client.get("/projects/trash").json())
 
-        # Re-confirm question bank
-        client.post(f"/projects/{project_id}/question-bank/confirm")
-
-        # 5. Test Project Deletion
-        del_resp = client.delete(f"/projects/{project_id}")
-        assert del_resp.status_code == 204, del_resp.text
-        print("✓ Project deleted via API (204 No Content)")
-
-        # Verify project no longer exists in GET /projects/{id}
-        get_resp = client.get(f"/projects/{project_id}")
-        assert get_resp.status_code == 404
-        print("✓ Confirmed project 404 after deletion")
-
-    print("\nALL UNLOCK & DELETE VALIDATION TESTS PASSED PERFECTLY!")
-    return 0
+        print("Unlock and soft-delete regression passed: no billed model calls used.")
+        return 0
+    finally:
+        shutil.rmtree(ROOT, ignore_errors=True)
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    raise SystemExit(main())

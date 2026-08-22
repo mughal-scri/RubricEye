@@ -26,7 +26,7 @@ router = APIRouter(prefix="/projects", tags=["grading"])
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
@@ -176,8 +176,9 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     if not project.question_bank_confirmed:
         raise HTTPException(status_code=409, detail="Question bank must be confirmed before grading.")
 
-    # Edge Case C (idempotency): a fully-complete sheet is never re-processed.
-    if sheet.grading_status == "complete":
+    # Edge Case C (idempotency): an already-processed sheet is never re-processed
+    # merely because examiner review is still outstanding.
+    if sheet.grading_status in ("complete", "review_required"):
         existing = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all()
         return GradeTriggerResponse(
             answer_sheet_id=sheet.id,
@@ -269,7 +270,7 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     db.commit()
 
     any_hard_failure = any(r.grading_status == "failed" for r in graded_results) or bool(filtered.no_regions)
-    sheet.grading_status = "failed" if any_hard_failure else "complete"
+    sheet.grading_status = "failed" if any_hard_failure else "review_required"
     db.commit()
 
     return GradeTriggerResponse(
@@ -339,9 +340,38 @@ def confirm_result(
     if not result:
         raise HTTPException(status_code=404, detail="Grading result not found for this question.")
 
+    max_score = result.ai_total_possible
+    if max_score is None:
+        question = (
+            db.query(QuestionBankItem)
+            .filter(
+                QuestionBankItem.project_id == project_id,
+                QuestionBankItem.question_number == question_number,
+            )
+            .one_or_none()
+        )
+        max_score = question.marks_possible if question else None
+    if max_score is None:
+        raise HTTPException(status_code=409, detail="Marks limit is unavailable for this question; cannot confirm a bounded score.")
+    if payload.human_confirmed_score < 0 or payload.human_confirmed_score > max_score:
+        raise HTTPException(status_code=422, detail=f"Confirmed score must be between 0 and {max_score} marks.")
+
     result.human_confirmed_score = payload.human_confirmed_score
     result.human_reviewer_note = payload.human_reviewer_note
     result.reviewed = True
+
+    remaining = (
+        db.query(GradingResult)
+        .filter(
+            GradingResult.answer_sheet_id == sheet.id,
+            GradingResult.id != result.id,
+            GradingResult.reviewed.is_(False),
+            GradingResult.grading_status != "failed",
+        )
+        .count()
+    )
+    if remaining == 0 and sheet.grading_status == "review_required":
+        sheet.grading_status = "complete"
     db.commit()
 
     region_map_keys = list(json.loads(sheet.question_region_map_json or "{}").keys())

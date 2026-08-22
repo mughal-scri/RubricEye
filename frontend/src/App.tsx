@@ -9,6 +9,7 @@ import QuestionBankSetup from "./pages/QuestionBankSetup";
 import QuestionGroupSetup from "./pages/QuestionGroupSetup";
 import TemplateMapReview from "./pages/TemplateMapReview";
 import UploadAnswerSheet from "./pages/UploadAnswerSheet";
+import Trash from "./pages/Trash";
 import "./styles.css";
 
 export default function App() {
@@ -34,6 +35,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<ProjectList />} />
             <Route path="/projects/new" element={<CreateProject />} />
+            <Route path="/trash" element={<Trash />} />
             <Route path="/projects/:projectId" element={<ProjectDetailPage />} />
             <Route path="/projects/:projectId/template-map" element={<TemplateMapReview />} />
             <Route path="/projects/:projectId/question-bank" element={<QuestionBankSetup />} />

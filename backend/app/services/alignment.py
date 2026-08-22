@@ -34,20 +34,48 @@ def _cluster_positions(values: list[int], tolerance: int = 12) -> list[int]:
     return [int(sum(cluster) / len(cluster)) for cluster in clusters]
 
 
-def _collect_grid_points(alignment_reference: dict, page_number: int) -> tuple[np.ndarray, np.ndarray]:
+def _sample_corresponding(reference: list[int], detected: list[int], limit: int = 8) -> tuple[list[float], list[float]]:
+    """Pair ordered template and scan grid lines without assuming identical coordinates.
+
+    The template stores line positions in the blank-booklet reference image, while the
+    scan contains the corresponding lines after camera/scanner distortion. Sampling
+    both ordered lists at the same number of positions gives findHomography real
+    reference -> scan correspondences and still tolerates a few spurious lines.
+    """
+    count = min(len(reference), len(detected), limit)
+    if count < 2:
+        return [], []
+
+    def sample(values: list[int]) -> list[float]:
+        indices = np.linspace(0, len(values) - 1, count).round().astype(int).tolist()
+        return [float(values[index]) for index in indices]
+
+    return sample(reference), sample(detected)
+
+
+def _collect_grid_points(
+    alignment_reference: dict,
+    page_number: int,
+    scan_h: list[int],
+    scan_v: list[int],
+) -> tuple[np.ndarray, np.ndarray]:
     pages = alignment_reference.get("pages", {})
     page_ref = pages.get(str(page_number), {})
-    hs = page_ref.get("horizontal_lines", [])
-    vs = page_ref.get("vertical_lines", [])
+    ref_h = _cluster_positions(page_ref.get("horizontal_lines", []))
+    ref_v = _cluster_positions(page_ref.get("vertical_lines", []))
+
+    template_h, detected_h = _sample_corresponding(ref_h, scan_h)
+    template_v, detected_v = _sample_corresponding(ref_v, scan_v)
+    if len(template_h) < 2 or len(template_v) < 2:
+        return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
+
     src_points: list[list[float]] = []
     dst_points: list[list[float]] = []
-    for y in hs[:8]:
-        for x in vs[:8]:
-            src_points.append([float(x), float(y)])
-            dst_points.append([float(x), float(y)])
-    if len(src_points) >= 4:
-        return np.array(src_points, dtype=np.float32), np.array(dst_points, dtype=np.float32)
-    return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
+    for ref_y, scan_y in zip(template_h, detected_h):
+        for ref_x, scan_x in zip(template_v, detected_v):
+            src_points.append([ref_x, ref_y])
+            dst_points.append([scan_x, scan_y])
+    return np.array(src_points, dtype=np.float32), np.array(dst_points, dtype=np.float32)
 
 
 def compute_alignment_matrix(
@@ -63,10 +91,10 @@ def compute_alignment_matrix(
     scan_h = _cluster_positions(scan_h)
     scan_v = _cluster_positions(scan_v)
 
-    src_pts, dst_pts = _collect_grid_points(alignment_reference, page_number)
-    if src_pts.size >= 8:
+    src_pts, dst_pts = _collect_grid_points(alignment_reference, page_number, scan_h, scan_v)
+    if src_pts.size >= 8 and dst_pts.size >= 8:
         matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
-        if matrix is not None:
+        if matrix is not None and np.isfinite(matrix).all():
             return matrix
 
     ref_page = alignment_reference.get("pages", {}).get(str(page_number), {})
@@ -81,10 +109,7 @@ def compute_alignment_matrix(
 
 def transform_bbox(bbox: list[int], matrix: np.ndarray) -> list[int]:
     x1, y1, x2, y2 = bbox
-    corners = np.array(
-        [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
-        dtype=np.float32,
-    ).reshape(-1, 1, 2)
+    corners = np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], dtype=np.float32).reshape(-1, 1, 2)
     transformed = cv2.perspectiveTransform(corners, matrix).reshape(-1, 2)
     xs = transformed[:, 0]
     ys = transformed[:, 1]

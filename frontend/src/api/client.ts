@@ -4,6 +4,7 @@ export interface ProjectSummary {
   id: string;
   name: string;
   created_at: string;
+  deleted_at?: string | null;
   template_map_confirmed: boolean;
   template_map_status: string;
   rubric_locked: boolean;
@@ -15,6 +16,7 @@ export interface ProjectDetail extends ProjectSummary {
   question_paper_file_path: string;
   blank_booklet_file_path: string;
   question_bank_marks_warning: string | null;
+  template_map_error?: string | null;
 }
 
 export interface BBox {
@@ -111,6 +113,18 @@ export function createProject(formData: FormData): Promise<ProjectDetail> {
 
 export function deleteProject(projectId: string): Promise<void> {
   return request(`/projects/${projectId}`, { method: "DELETE" });
+}
+
+export function listTrash(): Promise<ProjectSummary[]> {
+  return request("/projects/trash");
+}
+
+export function restoreProject(projectId: string): Promise<ProjectSummary> {
+  return request(`/projects/${projectId}/restore`, { method: "POST" });
+}
+
+export function hardDeleteProject(projectId: string): Promise<void> {
+  return request(`/projects/${projectId}/hard`, { method: "DELETE" });
 }
 
 export function getTemplateMap(projectId: string): Promise<TemplateMapResponse> {

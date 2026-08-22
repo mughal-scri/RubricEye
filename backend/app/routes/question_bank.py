@@ -20,7 +20,7 @@ router = APIRouter(prefix="/projects", tags=["question-bank"])
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
@@ -49,13 +49,23 @@ def add_question_bank_item(
     project = _get_project_or_404(project_id, db)
     if project.question_bank_confirmed:
         raise HTTPException(status_code=409, detail="Question bank is already confirmed and locked.")
-    if not question_number.strip():
+    normalized_question_number = question_number.strip()
+    if not normalized_question_number:
         raise HTTPException(status_code=400, detail="question_number is required.")
+    if marks_possible is not None and marks_possible < 0:
+        raise HTTPException(status_code=422, detail="marks_possible must be non-negative.")
+    duplicate = (
+        db.query(QuestionBankItem)
+        .filter(QuestionBankItem.project_id == project_id, QuestionBankItem.question_number == normalized_question_number)
+        .one_or_none()
+    )
+    if duplicate:
+        raise HTTPException(status_code=409, detail="A question with this number already exists in the question bank.")
 
     item = QuestionBankItem(
         id=str(uuid.uuid4()),
         project_id=project_id,
-        question_number=question_number.strip(),
+        question_number=normalized_question_number,
         marks_possible=marks_possible,
         key_points=key_points,
     )
@@ -82,6 +92,8 @@ def update_question_bank_item(
         raise HTTPException(status_code=404, detail="Question bank item not found.")
 
     if payload.marks_possible is not None:
+        if payload.marks_possible < 0:
+            raise HTTPException(status_code=422, detail="marks_possible must be non-negative.")
         item.marks_possible = payload.marks_possible
     if payload.key_points is not None:
         item.key_points = payload.key_points

@@ -53,7 +53,7 @@ def _build_template_map_response(project: Project, pages: list[TemplateMapPage])
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 

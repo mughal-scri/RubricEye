@@ -9,7 +9,6 @@ RubricEye_Architecture.md
 RubricEye_Roadmap.md
 RubricEye_FutureAdditions.md
 DOCS/mini_grader.py
-/DOCS
 # ============================
 # Secrets — never commit these
 # ============================
@@ -26,7 +25,7 @@ DOCS/mini_grader.py
 *.worktrees/
 ./temp/*
 temp/
-
+/DOCS
 # ============================
 # Python (backend)
 # ============================

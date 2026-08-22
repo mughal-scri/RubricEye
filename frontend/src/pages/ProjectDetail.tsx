@@ -30,7 +30,7 @@ export default function ProjectDetailPage() {
   useEffect(load, [projectId]);
 
   const ready = Boolean(project?.template_map_confirmed && project?.question_bank_confirmed);
-  const pendingSheets = useMemo(() => sheets.filter((sheet) => sheet.grading_status === "complete").length, [sheets]);
+  const pendingSheets = useMemo(() => sheets.filter((sheet) => sheet.grading_status === "review_required").length, [sheets]);
   const nextStep = !project?.template_map_confirmed
     ? { title: "Review the template map before uploading", body: "The detected regions must be confirmed before answer sheets can be prepared.", href: `/projects/${projectId}/template-map`, label: "Review template map" }
     : !project.question_bank_confirmed
@@ -75,6 +75,7 @@ export default function ProjectDetailPage() {
       </div>
 
       {error && <div className="alert alert-error" role="alert"><span><strong>Action could not be completed.</strong> {error}</span><button type="button" className="btn btn-quiet" onClick={load}>Retry</button></div>}
+      {project.template_map_error && <div className="alert alert-error" role="alert"><span><strong>Template preparation needs attention.</strong> {project.template_map_error}</span><Link to={`/projects/${projectId}/template-map`} className="alert-action">Review template map</Link></div>}
       {project.question_bank_marks_warning && <div className="alert alert-warning" role="alert"><span><strong>Review marks before locking.</strong> {project.question_bank_marks_warning}</span><Link to={`/projects/${projectId}/question-bank`} className="alert-action">Review question bank</Link></div>}
 
       <section className="next-step-panel" aria-labelledby="next-step-title">

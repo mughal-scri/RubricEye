@@ -29,15 +29,17 @@ class Project(Base):
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     rubric_file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     question_paper_file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     blank_booklet_file_path: Mapped[str] = mapped_column(String(1024), nullable=False)
     template_map_confirmed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     rubric_locked: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     template_map_status: Mapped[str] = mapped_column(String(32), default="pending", nullable=False)
+    template_map_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     alignment_reference_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
-    # --- Phase 2 additions ---
+    # --- Preparation and grading additions ---
     # Not explicitly in the Phase 2 plan's schema table, but required by the plan's own UI spec:
     # ProjectDetail.tsx needs a "Grade" button "disabled until question bank is set up", which
     # requires a durable lock flag (mirrors template_map_confirmed's pattern exactly).
@@ -87,7 +89,7 @@ class AnswerSheet(Base):
     # Sheet-level grading status, independent of individual GradingResult.grading_status rows.
     # Edge Case C (idempotency): lets a retry short-circuit instantly if the whole sheet is
     # already "complete" without touching per-question rows at all.
-    # One of: not_graded | in_progress | complete | failed
+    # One of: not_graded | in_progress | review_required | complete | failed
     grading_status: Mapped[str] = mapped_column(String(32), default="not_graded", nullable=False)
 
     project: Mapped["Project"] = relationship(back_populates="answer_sheets")
@@ -174,7 +176,7 @@ class GradingResult(Base):
     human_reviewer_note: Mapped[str | None] = mapped_column(Text, nullable=True)
     reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
-    # Edge Case C (idempotency): pending | in_progress | complete | failed
+    # Edge Case C (idempotency): pending | in_progress | review_required | complete | failed
     grading_status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
 

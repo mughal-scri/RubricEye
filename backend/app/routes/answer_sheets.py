@@ -19,7 +19,7 @@ router = APIRouter(prefix="/projects", tags=["answer-sheets"])
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
@@ -32,6 +32,7 @@ def _sheet_to_summary(sheet: AnswerSheet) -> AnswerSheetSummary:
         roll_number=sheet.roll_number,
         uploaded_at=sheet.uploaded_at,
         page_count=len(page_paths),
+        grading_status=sheet.grading_status,
     )
 
 
@@ -58,6 +59,7 @@ def _sheet_to_detail(sheet: AnswerSheet) -> AnswerSheetDetail:
         roll_number=sheet.roll_number,
         uploaded_at=sheet.uploaded_at,
         page_count=len(page_paths),
+        grading_status=sheet.grading_status,
         page_image_urls=[
             f"/files/projects/{sheet.project_id}/answer_sheets/{sheet.id}/page_{idx + 1:03d}.png"
             for idx in range(len(page_paths))

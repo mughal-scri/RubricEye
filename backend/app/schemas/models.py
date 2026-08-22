@@ -51,6 +51,7 @@ class ProjectSummary(BaseModel):
     id: str
     name: str
     created_at: datetime
+    deleted_at: datetime | None = None
     template_map_confirmed: bool
     template_map_status: str
     rubric_locked: bool
@@ -64,6 +65,7 @@ class ProjectDetail(ProjectSummary):
     question_paper_file_path: str
     blank_booklet_file_path: str
     question_bank_marks_warning: str | None = None
+    template_map_error: str | None = None
 
 
 class RegionRef(BaseModel):

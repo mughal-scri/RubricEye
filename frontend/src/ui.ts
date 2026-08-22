@@ -15,6 +15,8 @@ export function gradingStatusLabel(status: string): { label: string; tone: Statu
     case "in_progress":
       return { label: "Grading in progress", tone: "warning" };
     case "complete":
+      return { label: "Finalized after examiner review", tone: "success" };
+    case "review_required":
       return { label: "AI grading complete · review required", tone: "indigo" };
     case "failed":
       return { label: "Grading failed · retry available", tone: "danger" };

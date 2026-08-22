@@ -17,6 +17,10 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE projects ADD COLUMN question_bank_confirmed BOOLEAN NOT NULL DEFAULT 0"))
             if "question_bank_marks_warning" not in project_cols:
                 conn.execute(text("ALTER TABLE projects ADD COLUMN question_bank_marks_warning TEXT"))
+            if "deleted_at" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN deleted_at DATETIME"))
+            if "template_map_error" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN template_map_error TEXT"))
 
     if "answer_sheets" in tables:
         sheet_cols = {col["name"] for col in inspector.get_columns("answer_sheets")}

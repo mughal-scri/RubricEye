@@ -19,7 +19,9 @@ Manual grading of handwritten exams is slow and inconsistent — the same answer
 
 ## Status
 
-**Feasibility stage complete.** Core architecture validated with real API calls against Alibaba Cloud's Qwen-VL-Max — see `mini_grader.py` for the working proof-of-concept grading script. Currently entering Phase 1 (core infrastructure) per the roadmap below.
+**Core infrastructure and Phase 2 grading integration are implemented.** The current hardening pass has also added confidence-gating and alignment repairs, score-bound validation, question-group validation, project-creation failure recording, soft-delete/Trash recovery, explicit `review_required` sheet status, and the evidence-first frontend review pass.
+
+The highest-risk remaining validation is an end-to-end run against real handwritten answer booklets. Synthetic and mocked validation are useful regression checks, but they do not replace inspecting real template maps, segmentation crops, ink-density ratios, and grading quality.
 
 ## Documentation
 
@@ -47,24 +49,31 @@ Start here, in this order:
 git clone <repo-url>
 cd rubriceye
 
-# Backend
-python3 -m venv venv
-source venv/bin/activate          # Windows: venv\Scripts\activate
-pip install -r requirements.txt
-
-# Set your API key (never commit this)
-export DASHSCOPE_API_KEY="your_key_here"
+# Backend dependencies
+sudo uv pip install --system -r backend/requirements.txt
 
 # Frontend
 cd frontend
-npm install
+npm ci --no-audit --no-fund
+npm run build
+
+# Only for intentional real-model validation; never commit the key
+export DASHSCOPE_API_KEY="your_key_here"
 ```
 
 See `RubricEye_TechDoc.md` for the full API and data model before writing backend routes — the schema is deliberately fixed up front (rubric locking, region maps, human-confirmation fields) and shouldn't drift from it without updating the doc first.
 
-## Testing Philosophy
+## Testing
 
-Per project decision, comprehensive automated testing is deferred until the core upload → segment → grade → confirm workflow is wired end-to-end — not skipped, just sequenced later. In the meantime, validate manually against real handwritten test booklets (not synthetic data) filled out by real people, to surface genuine handwriting variance, mislabeling, and edge cases synthetic data won't produce.
+Run the no-cost regression loops from the repository root:
+
+```bash
+PYTHONPATH=backend python3 backend/scripts/validate_hardening_local.py
+PYTHONPATH=backend python3 backend/scripts/validate_unlock_and_delete.py
+PYTHONPATH=backend python3 backend/scripts/validate_roman_numeral_parts.py
+```
+
+These loops cover backend hardening without billed model calls. `backend/scripts/validate_phase2.py` intentionally uses real Qwen-VL-Max calls and should be run only after the local loops pass and a real API test is desired. Before submission, run the complete workflow against the three planned real handwritten booklets and record the results.
 
 ## License
 

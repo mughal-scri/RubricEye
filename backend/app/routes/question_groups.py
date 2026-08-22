@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import Project, QuestionGroup
+from app.db.models import Project, QuestionBankItem, QuestionGroup
 from app.schemas.models import QuestionGroupCreate, QuestionGroupResponse
 
 router = APIRouter(prefix="/projects", tags=["question-groups"])
@@ -15,7 +15,7 @@ router = APIRouter(prefix="/projects", tags=["question-groups"])
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
     project = db.get(Project, project_id)
-    if not project:
+    if not project or project.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Project not found.")
     return project
 
@@ -44,6 +44,32 @@ def create_question_group(
 ) -> QuestionGroupResponse:
     _get_project_or_404(project_id, db)
 
+    group_name = payload.group_name.strip()
+    if not group_name:
+        raise HTTPException(status_code=400, detail="group_name cannot be empty.")
+    if len(set(payload.question_numbers)) != len(payload.question_numbers):
+        raise HTTPException(status_code=400, detail="question_numbers must not contain duplicates.")
+
+    known_questions = {
+        item.question_number
+        for item in db.query(QuestionBankItem)
+        .filter(QuestionBankItem.project_id == project_id)
+        .all()
+    }
+    unknown_questions = sorted(set(payload.question_numbers) - known_questions)
+    if unknown_questions:
+        raise HTTPException(status_code=422, detail=f"Unknown question number(s): {', '.join(unknown_questions)}.")
+
+    existing_groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
+    assigned_questions = {
+        question
+        for group in existing_groups
+        for question in json.loads(group.question_numbers_json or "[]")
+    }
+    overlapping = sorted(set(payload.question_numbers) & assigned_questions)
+    if overlapping:
+        raise HTTPException(status_code=409, detail=f"Question(s) already assigned to another group: {', '.join(overlapping)}.")
+
     if payload.selection_type not in ("compulsory", "choose_n_of_m"):
         raise HTTPException(status_code=400, detail="selection_type must be 'compulsory' or 'choose_n_of_m'.")
     if payload.selection_type == "choose_n_of_m":
@@ -55,7 +81,7 @@ def create_question_group(
     group = QuestionGroup(
         id=str(uuid.uuid4()),
         project_id=project_id,
-        group_name=payload.group_name.strip(),
+        group_name=group_name,
         selection_type=payload.selection_type,
         question_numbers_json=json.dumps(payload.question_numbers),
         n_required=payload.n_required if payload.selection_type == "choose_n_of_m" else None,

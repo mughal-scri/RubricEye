@@ -121,15 +121,9 @@ def _assign_boxes_to_labels(
                     bbox=boxes[best_idx],
                 )
             )
-    if not regions and boxes:
-        for idx, box in enumerate(boxes[:12]):
-            regions.append(
-                DetectedRegion(
-                    question_number=str(idx + 1),
-                    part_label="",
-                    bbox=box,
-                )
-            )
+    # Do not fabricate sequential question labels when OCR found no real match.
+    # An empty result is intentional: derive_template_map will then escalate to
+    # the already-built vision fallback instead of presenting false confidence.
     return regions
 
 

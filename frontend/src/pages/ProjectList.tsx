@@ -33,7 +33,7 @@ export default function ProjectList() {
   );
 
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Delete project “${name}”? This removes its source files and results.`)) return;
+    if (!window.confirm(`Move “${name}” to Trash? It will remain recoverable for 30 days.`)) return;
     setDeletingId(id);
     setError("");
     try {
@@ -54,9 +54,10 @@ export default function ProjectList() {
           <h1>Evaluation projects</h1>
           <p>Manage assessment rubrics, template maps, answer sheets, and examiner reviews.</p>
         </div>
-        <Link to="/projects/new" className="btn btn-primary">
-          <FolderPlus size={18} /> Create project
-        </Link>
+        <div className="button-row">
+          <Link to="/trash" className="btn btn-secondary"><Trash2 size={16} /> Trash</Link>
+          <Link to="/projects/new" className="btn btn-primary"><FolderPlus size={18} /> Create project</Link>
+        </div>
       </div>
 
       <div className="stats-grid">
@@ -119,7 +120,7 @@ export default function ProjectList() {
                       onClick={() => handleDelete(project.id, project.name)}
                       disabled={deletingId === project.id}
                       aria-label={`Delete ${project.name}`}
-                      title="Delete project"
+                      title="Move project to Trash"
                     >
                       <Trash2 size={15} />
                     </button>

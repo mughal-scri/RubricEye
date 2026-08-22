@@ -43,6 +43,20 @@ def _px(box_points: list[int]) -> list[int]:
     return [round(v * SCALE) for v in box_points]
 
 
+def _fake_template_fallback(page_image_paths):
+    from app.services.template_types import DetectedRegion
+    from app.services.template_vision_fallback import VisionDerivationResult
+
+    regions = {
+        1: [DetectedRegion(question_number="2", part_label=part, bbox=_px([72, Y_START + index * ROW_H + 10, 520, Y_START + (index + 1) * ROW_H - 15])) for index, part in enumerate(PARTS)]
+    }
+    return VisionDerivationResult(
+        pages=regions,
+        alignment_reference={"pages": {"1": {"horizontal_lines": [], "vertical_lines": [], "width": 1653, "height": 2339}}},
+        confidence="medium",
+    )
+
+
 def _fake_create(*args, **kwargs):
     resp = MagicMock()
     payload = {
@@ -58,7 +72,9 @@ def main() -> int:
     fake_client = MagicMock()
     fake_client.chat.completions.create.side_effect = _fake_create
 
-    with patch("app.services.grading._get_client", return_value=fake_client):
+    with patch("app.services.grading._get_client", return_value=fake_client), patch(
+        "app.services.template_derivation.extract_regions_with_vision", side_effect=_fake_template_fallback
+    ):
         from app.main import app
 
         with TestClient(app) as client:
