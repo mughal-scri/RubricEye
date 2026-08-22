@@ -11,86 +11,26 @@ interface Props {
 export default function RegionOverlay({ imageUrl, regions, hoveredIndex, onSelectRegion }: Props) {
   const [naturalDimensions, setNaturalDimensions] = useState<{ width: number; height: number } | null>(null);
 
-  return (
-    <div style={{ position: "relative", display: "inline-block", maxWidth: "100%", borderRadius: "10px", overflow: "hidden", background: "#0f172a" }}>
-      <img
-        src={imageUrl}
-        alt="Template Page"
-        onLoad={(e) => {
-          setNaturalDimensions({
-            width: e.currentTarget.naturalWidth,
-            height: e.currentTarget.naturalHeight,
-          });
-        }}
-        style={{
-          display: "block",
-          maxWidth: "100%",
-          height: "auto",
-        }}
-      />
-
-      {naturalDimensions && (
-        <svg
-          viewBox={`0 0 ${naturalDimensions.width} ${naturalDimensions.height}`}
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            width: "100%",
-            height: "100%",
-            pointerEvents: "auto",
-          }}
-        >
-          {regions.map((region, index) => {
-            const { x1, y1, x2, y2 } = region.bbox;
-            const width = Math.max(0, x2 - x1);
-            const height = Math.max(0, y2 - y1);
-            const isHovered = hoveredIndex === index;
-            const labelText = `Q${region.question_number}${region.part_label ? ` (${region.part_label})` : ""}`;
-
-            return (
-              <g
-                key={`${region.question_number}-${region.part_label}-${index}`}
-                onClick={() => onSelectRegion?.(index)}
-                style={{ cursor: "pointer" }}
-              >
-                {/* Rect Bounding Box */}
-                <rect
-                  x={x1}
-                  y={y1}
-                  width={width}
-                  height={height}
-                  fill={isHovered ? "rgba(99, 102, 241, 0.25)" : "rgba(37, 99, 235, 0.12)"}
-                  stroke={isHovered ? "#4f46e5" : "#2563eb"}
-                  strokeWidth={isHovered ? 4 : 2}
-                  rx={4}
-                  ry={4}
-                />
-
-                {/* Question Label Badge inside SVG */}
-                <rect
-                  x={x1 + 4}
-                  y={y1 + 4}
-                  width={Math.max(60, labelText.length * 10 + 16)}
-                  height={24}
-                  fill={isHovered ? "#4f46e5" : "#1e40af"}
-                  rx={4}
-                />
-                <text
-                  x={x1 + 12}
-                  y={y1 + 20}
-                  fill="white"
-                  fontSize={13}
-                  fontWeight={600}
-                  fontFamily="Inter, sans-serif"
-                >
-                  {labelText}
-                </text>
-              </g>
-            );
-          })}
-        </svg>
-      )}
-    </div>
-  );
+  return <div className="overlay-wrapper">
+    <img src={imageUrl} alt="Blank booklet page with detected answer regions" className="overlay-img" onLoad={(event) => setNaturalDimensions({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })} />
+    {naturalDimensions && <svg viewBox={`0 0 ${naturalDimensions.width} ${naturalDimensions.height}`} className="overlay-svg" role="img" aria-label="Detected answer region overlays">
+      {regions.map((region, index) => {
+        const { x1, y1, x2, y2 } = region.bbox;
+        const width = Math.max(0, x2 - x1);
+        const height = Math.max(0, y2 - y1);
+        const isHovered = hoveredIndex === index;
+        const hasQuestion = Boolean(region.question_number?.trim());
+        const hasValidBox = width > 0 && height > 0;
+        const state = !hasValidBox ? "invalid" : hasQuestion ? "mapped" : "unmapped";
+        const labelText = !hasValidBox ? "Invalid region" : hasQuestion ? `Q${region.question_number}${region.part_label ? ` (${region.part_label})` : ""}` : "Unmapped region";
+        const colors = state === "mapped" ? { fill: "rgba(37, 99, 235, 0.13)", stroke: "#2563eb", label: "#1d4ed8" } : state === "unmapped" ? { fill: "rgba(217, 119, 6, 0.18)", stroke: "#b45309", label: "#92400e" } : { fill: "rgba(190, 24, 93, 0.18)", stroke: "#be123c", label: "#9f1239" };
+        const labelWidth = Math.max(86, labelText.length * 8 + 20);
+        return <g key={`${region.question_number}-${region.part_label}-${index}`} onClick={() => onSelectRegion?.(index)} className="overlay-region" tabIndex={0} role="button" aria-label={`${labelText}, region ${index + 1}`}>
+          <rect x={x1} y={y1} width={width} height={height} fill={isHovered ? colors.fill.replace("0.", "0.28") : colors.fill} stroke={isHovered ? colors.label : colors.stroke} strokeWidth={isHovered ? 4 : 2} rx={4} />
+          <rect x={x1 + 4} y={y1 + 4} width={labelWidth} height={24} fill={isHovered ? colors.label : colors.stroke} rx={4} />
+          <text x={x1 + 12} y={y1 + 20} fill="white" fontSize={12} fontWeight={700} fontFamily="Inter, sans-serif">{labelText}</text>
+        </g>;
+      })}
+    </svg>}
+  </div>;
 }

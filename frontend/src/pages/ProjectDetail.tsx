@@ -1,37 +1,12 @@
-import {
-  ArrowLeft,
-  CheckCircle2,
-  Clock,
-  Eye,
-  FileUp,
-  GraduationCap,
-  Layers,
-  ListChecks,
-  ShieldLock,
-  Sparkles,
-  Upload,
-} from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowLeft, CheckCircle2, Clock3, Eye, FileCheck2, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Upload } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import {
-  AnswerSheetSummary,
-  gradeAnswerSheet,
-  getProject,
-  listAnswerSheets,
-  listQuestionBank,
-  ProjectDetail,
-} from "../api/client";
-
-const GRADING_STATUS_BADGE: Record<string, string> = {
-  not_graded: "badge-slate",
-  in_progress: "badge-warning",
-  complete: "badge-success",
-  failed: "badge-warning",
-};
+import { AnswerSheetSummary, getProject, gradeAnswerSheet, listAnswerSheets, listQuestionBank, ProjectDetail as ProjectDetailType } from "../api/client";
+import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
-  const [project, setProject] = useState<ProjectDetail | null>(null);
+  const [project, setProject] = useState<ProjectDetailType | null>(null);
   const [sheets, setSheets] = useState<AnswerSheetSummary[]>([]);
   const [questionBankCount, setQuestionBankCount] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -40,20 +15,29 @@ export default function ProjectDetailPage() {
 
   const load = () => {
     if (!projectId) return;
+    setLoading(true);
+    setError("");
     Promise.all([getProject(projectId), listAnswerSheets(projectId), listQuestionBank(projectId)])
       .then(([projectData, sheetData, qbData]) => {
         setProject(projectData);
         setSheets(sheetData);
         setQuestionBankCount(qbData.items.length);
-        setLoading(false);
       })
-      .catch((err) => {
-        setError(String(err));
-        setLoading(false);
-      });
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setLoading(false));
   };
 
   useEffect(load, [projectId]);
+
+  const ready = Boolean(project?.template_map_confirmed && project?.question_bank_confirmed);
+  const pendingSheets = useMemo(() => sheets.filter((sheet) => sheet.grading_status === "complete").length, [sheets]);
+  const nextStep = !project?.template_map_confirmed
+    ? { title: "Review the template map before uploading", body: "The detected regions must be confirmed before answer sheets can be prepared.", href: `/projects/${projectId}/template-map`, label: "Review template map" }
+    : !project.question_bank_confirmed
+      ? { title: "Confirm the question bank before grading", body: "Review question numbers, marks, and key points so grading uses the intended criteria.", href: `/projects/${projectId}/question-bank`, label: "Review question bank" }
+      : pendingSheets > 0
+        ? { title: `${pendingSheets} sheet${pendingSheets === 1 ? "" : "s"} ready for examiner review`, body: "AI grading is complete, but these results are not final until the examiner confirms them.", href: `/projects/${projectId}`, label: "Review answer sheets" }
+        : { title: "Assessment setup is ready", body: "Upload an answer sheet to begin preparation and grading.", href: `/projects/${projectId}/upload`, label: "Upload answer sheet" };
 
   const triggerGrade = async (sheetId: string) => {
     if (!projectId) return;
@@ -63,228 +47,53 @@ export default function ProjectDetailPage() {
       await gradeAnswerSheet(projectId, sheetId);
       load();
     } catch (err) {
-      setError(String(err));
+      setError(`The sheet could not be graded. ${errorMessage(err)}`);
     } finally {
       setGradingSheetId(null);
     }
   };
 
   if (!projectId) return null;
-  if (error) return <div className="alert alert-error">Error loading project: {error}</div>;
-  if (loading || !project) return <div style={{ textAlign: "center", padding: "3rem" }}>Loading project details...</div>;
+  if (loading) return <div className="loading-state" role="status">Loading project…</div>;
+  if (!project) return <div className="empty-state"><h3>Project unavailable</h3><p>{error || "This project could not be loaded."}</p><Link to="/" className="btn btn-secondary">Back to projects</Link></div>;
 
   return (
     <div>
-      <div className="breadcrumb">
-        <Link to="/"><ArrowLeft size={14} /> Back to Projects</Link>
-      </div>
-
+      <div className="breadcrumb"><Link to="/"><ArrowLeft size={14} /> Projects</Link><span>/</span><span>{project.name}</span></div>
       <div className="page-header">
         <div className="page-title-group">
-          <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-            <h1>{project.name}</h1>
-            <span className={`badge ${project.template_map_confirmed ? "badge-success" : "badge-warning"}`}>
-              {project.template_map_confirmed ? (
-                <>
-                  <CheckCircle2 size={12} /> Template Confirmed
-                </>
-              ) : (
-                <>
-                  <Clock size={12} /> Pending Confirmation
-                </>
-              )}
-            </span>
-            <span className={`badge ${project.question_bank_confirmed ? "badge-success" : "badge-warning"}`}>
-              {project.question_bank_confirmed ? (
-                <>
-                  <CheckCircle2 size={12} /> Question Bank Locked
-                </>
-              ) : (
-                <>
-                  <Clock size={12} /> Question Bank Pending
-                </>
-              )}
-            </span>
-          </div>
-          <p>Project ID: <code style={{ fontFamily: "var(--font-mono)" }}>{project.id}</code></p>
+          <div className="eyebrow">Assessment workspace</div>
+          <div className="title-with-badges"><h1>{project.name}</h1><span className="badge badge-indigo"><ShieldLock size={12} /> Rubric locked</span></div>
+          <p>Created {formatDate(project.created_at)} · Project ID <code className="id-text">{project.id.slice(0, 8)}</code></p>
         </div>
-
-        <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap" }}>
-          <Link to={`/projects/${projectId}/template-map`} className="btn btn-secondary">
-            <Layers size={16} /> Review Template Map
-          </Link>
-          <Link to={`/projects/${projectId}/question-bank`} className="btn btn-secondary">
-            <ListChecks size={16} /> Setup Question Bank
-          </Link>
-          <Link to={`/projects/${projectId}/question-groups`} className="btn btn-secondary">
-            <Sparkles size={16} /> Setup Question Groups
-          </Link>
-          {project.template_map_confirmed ? (
-            <Link to={`/projects/${projectId}/upload`} className="btn btn-primary">
-              <Upload size={16} /> Upload Answer Sheet
-            </Link>
-          ) : (
-            <button className="btn btn-secondary" disabled title="Confirm template map first to enable answer sheet uploads">
-              <Upload size={16} /> Upload Answer Sheet (Locked)
-            </button>
-          )}
+        <div className="button-row wrap">
+          <Link to={`/projects/${projectId}/template-map`} className="btn btn-secondary"><Layers size={16} /> Template map</Link>
+          <Link to={`/projects/${projectId}/question-bank`} className="btn btn-secondary"><ListChecks size={16} /> Question bank</Link>
+          <Link to={`/projects/${projectId}/question-groups`} className="btn btn-secondary"><Sparkles size={16} /> Question groups</Link>
+          {ready ? <Link to={`/projects/${projectId}/upload`} className="btn btn-primary"><Upload size={16} /> Upload answer sheet</Link> : <button type="button" className="btn btn-secondary" disabled title="Confirm the template map and question bank first"><Upload size={16} /> Upload locked</button>}
         </div>
       </div>
 
-      {project.question_bank_marks_warning && (
-        <div className="alert alert-warning">
-          <span>{project.question_bank_marks_warning}</span>
-        </div>
-      )}
+      {error && <div className="alert alert-error" role="alert"><span><strong>Action could not be completed.</strong> {error}</span><button type="button" className="btn btn-quiet" onClick={load}>Retry</button></div>}
+      {project.question_bank_marks_warning && <div className="alert alert-warning" role="alert"><span><strong>Review marks before locking.</strong> {project.question_bank_marks_warning}</span><Link to={`/projects/${projectId}/question-bank`} className="alert-action">Review question bank</Link></div>}
 
-      {/* Project Status Summary Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-brand-600)", marginBottom: "0.5rem" }}>
-            <ShieldLock size={18} />
-            <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>Anti-Bias Rubric Lock</span>
-          </div>
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--color-emerald-700)" }}>
-            Locked & Immutable
-          </div>
-          <p style={{ fontSize: "0.8rem", color: "var(--color-slate-500)", marginTop: "0.25rem" }}>
-            MODIFICATIONS forbidden via HTTP 403 status code to preserve grading anti-bias integrity.
-          </p>
-        </div>
+      <section className="next-step-panel" aria-labelledby="next-step-title">
+        <div><span className="eyebrow">Recommended next step</span><h2 id="next-step-title">{nextStep.title}</h2><p>{nextStep.body}</p></div>
+        <Link to={nextStep.href} className="btn btn-primary">{nextStep.label}</Link>
+      </section>
 
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-brand-600)", marginBottom: "0.5rem" }}>
-            <Layers size={18} />
-            <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>Template Derivation</span>
-          </div>
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: project.template_map_confirmed ? "var(--color-emerald-700)" : "var(--color-amber-700)" }}>
-            Status: {project.template_map_status}
-          </div>
-          <p style={{ fontSize: "0.8rem", color: "var(--color-slate-500)", marginTop: "0.25rem" }}>
-            {project.template_map_confirmed ? "Locked against further coordinate edits." : "Review bounding box regions before answer sheet upload."}
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-brand-600)", marginBottom: "0.5rem" }}>
-            <GraduationCap size={18} />
-            <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>Question Bank</span>
-          </div>
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: project.question_bank_confirmed ? "var(--color-emerald-700)" : "var(--color-amber-700)" }}>
-            {questionBankCount} question(s) {project.question_bank_confirmed ? "locked" : "in draft"}
-          </div>
-          <p style={{ fontSize: "0.8rem", color: "var(--color-slate-500)", marginTop: "0.25rem" }}>
-            {project.question_bank_confirmed ? "Ready for grading." : "Confirm to enable the Grade button."}
-          </p>
-        </div>
-
-        <div className="card" style={{ padding: "1.25rem" }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", color: "var(--color-brand-600)", marginBottom: "0.5rem" }}>
-            <FileUp size={18} />
-            <span style={{ fontWeight: 700, fontSize: "0.9rem" }}>Uploaded Answer Sheets</span>
-          </div>
-          <div style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--color-slate-900)" }}>
-            {sheets.length} Booklet(s) Processed
-          </div>
-          <p style={{ fontSize: "0.8rem", color: "var(--color-slate-500)", marginTop: "0.25rem" }}>
-            Aligned & cropped into question region maps.
-          </p>
-        </div>
+      <div className="readiness-grid">
+        <div className="card readiness-card"><div className="card-label"><ShieldLock size={17} /> Rubric</div><strong>Locked for this assessment</strong><p>Source criteria remain fixed for consistent grading.</p></div>
+        <div className="card readiness-card"><div className="card-label"><Layers size={17} /> Template map</div><strong className={project.template_map_confirmed ? "text-success" : "text-warning"}>{project.template_map_confirmed ? "Confirmed and locked" : "Needs review before upload"}</strong><p>{project.template_map_status || "Candidate map status unavailable"}</p></div>
+        <div className="card readiness-card"><div className="card-label"><GraduationCap size={17} /> Question bank</div><strong className={project.question_bank_confirmed ? "text-success" : "text-warning"}>{project.question_bank_confirmed ? "Confirmed" : "In draft"}</strong><p>{questionBankCount} question{questionBankCount === 1 ? "" : "s"} available.</p></div>
+        <div className="card readiness-card"><div className="card-label"><FileUp size={17} /> Answer sheets</div><strong>{sheets.length} uploaded</strong><p>{pendingSheets} with AI results ready for review.</p></div>
       </div>
 
-      {/* Answer Sheets List */}
-      <div style={{ marginBottom: "1rem" }}>
-        <h2 style={{ fontSize: "1.3rem", fontWeight: 800, fontFamily: "var(--font-display)", color: "var(--color-slate-900)" }}>
-          Answer Sheets
-        </h2>
-      </div>
-
+      <div className="section-heading"><div><h2>Answer sheets</h2><p>Track preparation, grading, and examiner review by roll number.</p></div>{ready && <Link to={`/projects/${projectId}/upload`} className="btn btn-primary btn-sm"><Upload size={15} /> Upload</Link>}</div>
       {sheets.length === 0 ? (
-        <div className="empty-state">
-          <div className="empty-state-icon">
-            <FileUp size={28} />
-          </div>
-          <h3>No answer sheets uploaded yet</h3>
-          <p>
-            {project.template_map_confirmed
-              ? "Upload candidate answer sheet PDFs to perform structural alignment and question region segmentation."
-              : "Please review and confirm the template map before uploading answer sheets."}
-          </p>
-          {project.template_map_confirmed && (
-            <Link to={`/projects/${projectId}/upload`} className="btn btn-primary">
-              <Upload size={16} /> Upload Answer Sheet
-            </Link>
-          )}
-        </div>
+        <div className="empty-state"><div className="empty-state-icon"><FileUp size={28} /></div><h3>No answer sheets uploaded yet</h3><p>{ready ? "Upload a roll-number-identified booklet to begin." : "Confirm the template map and question bank before uploading."}</p>{ready && <Link to={`/projects/${projectId}/upload`} className="btn btn-primary"><Upload size={16} /> Upload answer sheet</Link>}</div>
       ) : (
-        <div className="table-container">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Candidate Roll #</th>
-                <th>Page Count</th>
-                <th>Uploaded Timestamp</th>
-                <th>Segmentation</th>
-                <th>Grading</th>
-                <th style={{ textAlign: "right" }}>Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {sheets.map((sheet) => (
-                <tr key={sheet.id}>
-                  <td style={{ fontWeight: 700, fontSize: "0.95rem" }}>
-                    Roll {sheet.roll_number}
-                  </td>
-                  <td>
-                    <span className="badge badge-slate">{sheet.page_count} Pages</span>
-                  </td>
-                  <td style={{ color: "var(--color-slate-500)" }}>
-                    {new Date(sheet.uploaded_at).toLocaleString()}
-                  </td>
-                  <td>
-                    <span className="badge badge-success">
-                      <CheckCircle2 size={12} /> Aligned & Segmented
-                    </span>
-                  </td>
-                  <td>
-                    <span className={`badge ${GRADING_STATUS_BADGE[sheet.grading_status] ?? "badge-slate"}`}>
-                      {sheet.grading_status.replace("_", " ")}
-                    </span>
-                  </td>
-                  <td style={{ textAlign: "right", display: "flex", gap: "0.5rem", justifyContent: "flex-end" }}>
-                    {sheet.grading_status === "not_graded" || sheet.grading_status === "failed" ? (
-                      <button
-                        type="button"
-                        className="btn btn-primary"
-                        style={{ padding: "0.35rem 0.75rem", fontSize: "0.85rem" }}
-                        disabled={!project.question_bank_confirmed || gradingSheetId === sheet.id}
-                        title={!project.question_bank_confirmed ? "Confirm the question bank first" : undefined}
-                        onClick={() => triggerGrade(sheet.id)}
-                      >
-                        <GraduationCap size={14} /> {gradingSheetId === sheet.id ? "Grading..." : "Grade"}
-                      </button>
-                    ) : (
-                      <Link
-                        to={`/projects/${projectId}/answer-sheets/${sheet.id}/results`}
-                        className="btn btn-secondary"
-                        style={{ padding: "0.35rem 0.75rem", fontSize: "0.85rem" }}
-                      >
-                        <GraduationCap size={14} /> View Results
-                      </Link>
-                    )}
-                    <Link
-                      to={`/projects/${projectId}/answer-sheets/${sheet.id}`}
-                      className="btn btn-secondary"
-                      style={{ padding: "0.35rem 0.75rem", fontSize: "0.85rem" }}
-                    >
-                      <Eye size={14} /> View Segmentation
-                    </Link>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <div className="table-container"><table className="table"><thead><tr><th>Roll number</th><th>Pages</th><th>Uploaded</th><th>Preparation</th><th>Grading</th><th>Actions</th></tr></thead><tbody>{sheets.map((sheet) => { const status = gradingStatusLabel(sheet.grading_status); const canGrade = sheet.grading_status === "not_graded" || sheet.grading_status === "failed"; return <tr key={sheet.id}><td><strong>Roll {sheet.roll_number}</strong></td><td><span className="badge badge-slate">{sheet.page_count} pages</span></td><td className="muted-text">{formatDate(sheet.uploaded_at)}</td><td><span className="badge badge-slate"><CheckCircle2 size={12} /> Prepared for review</span></td><td><span className={`badge badge-${status.tone}`}>{status.label}</span></td><td><div className="button-row table-actions">{canGrade ? <button type="button" className="btn btn-primary btn-sm" disabled={!project.question_bank_confirmed || gradingSheetId === sheet.id} title={!project.question_bank_confirmed ? "Confirm the question bank first" : undefined} onClick={() => triggerGrade(sheet.id)}><GraduationCap size={14} />{gradingSheetId === sheet.id ? "Grading…" : "Grade"}</button> : <Link to={`/projects/${projectId}/answer-sheets/${sheet.id}/results`} className="btn btn-secondary btn-sm"><GraduationCap size={14} /> Review results</Link>}<Link to={`/projects/${projectId}/answer-sheets/${sheet.id}`} className="btn btn-secondary btn-sm"><Eye size={14} /> Segmentation</Link></div></td></tr>; })}</tbody></table></div>
       )}
     </div>
   );

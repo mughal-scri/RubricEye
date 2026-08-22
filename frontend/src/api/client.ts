@@ -71,10 +71,25 @@ export interface AnswerSheetDetail extends AnswerSheetSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, init);
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, init);
+  } catch {
+    throw new Error("RubricEye cannot reach the local processing service. Your project files remain on this device.");
+  }
   if (!response.ok) {
     const text = await response.text();
-    throw new Error(text || response.statusText);
+    let detail = text || response.statusText;
+    try {
+      const parsed = JSON.parse(text);
+      detail = parsed.detail ?? parsed.message ?? detail;
+    } catch {
+      // Keep the plain response when it is not JSON.
+    }
+    if (/traceback|file \".*\", line \d+|exception:/i.test(detail)) {
+      detail = "The local service encountered an unexpected error. Your existing data was not changed.";
+    }
+    throw new Error(detail);
   }
   if (response.status === 204) {
     return undefined as T;

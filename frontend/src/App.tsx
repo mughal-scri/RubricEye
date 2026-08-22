@@ -21,12 +21,12 @@ export default function App() {
               <Eye size={20} color="white" />
             </div>
             <span className="brand-title">RubricEye</span>
-            <span className="brand-tag">Phase 2 Grading</span>
+            <span className="brand-tag">Local assessment workspace</span>
           </Link>
           <div className="header-status">
             <Server size={15} />
-            <span>Local Backend API</span>
-            <span className="status-dot"></span>
+            <span>Local backend</span>
+            <span className="status-dot status-dot-neutral" aria-label="Local backend status not checked"></span>
           </div>
         </header>
 

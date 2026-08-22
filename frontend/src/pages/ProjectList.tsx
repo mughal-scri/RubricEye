@@ -1,7 +1,8 @@
-import { CheckCircle2, Clock, FolderPlus, Layers, FileCheck, ArrowRight, ShieldLock, Trash2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { ArrowRight, CheckCircle2, Clock, FileCheck, FolderPlus, Layers, ShieldLock, Trash2 } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { deleteProject, listProjects, ProjectSummary } from "../api/client";
+import { errorMessage, formatDate } from "../ui";
 
 export default function ProjectList() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -11,161 +12,123 @@ export default function ProjectList() {
 
   const loadProjects = () => {
     setLoading(true);
+    setError("");
     listProjects()
-      .then((data) => {
-        setProjects(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        setError(String(err));
-        setLoading(false);
-      });
+      .then(setProjects)
+      .catch((err) => setError(errorMessage(err)))
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => {
     loadProjects();
   }, []);
 
+  const needsReview = useMemo(
+    () => projects.filter((project) => !project.template_map_confirmed || !project.question_bank_confirmed).length,
+    [projects]
+  );
+  const confirmedTemplates = useMemo(
+    () => projects.filter((project) => project.template_map_confirmed).length,
+    [projects]
+  );
+
   const handleDelete = async (id: string, name: string) => {
-    if (!window.confirm(`Are you sure you want to permanently delete project "${name}"? This action cannot be undone.`)) {
-      return;
-    }
+    if (!window.confirm(`Delete project “${name}”? This removes its source files and results.`)) return;
     setDeletingId(id);
     setError("");
     try {
       await deleteProject(id);
-      setProjects((prev) => prev.filter((p) => p.id !== id));
+      setProjects((prev) => prev.filter((project) => project.id !== id));
     } catch (err) {
-      setError(`Failed to delete project: ${String(err)}`);
+      setError(`Project could not be deleted. ${errorMessage(err)}`);
     } finally {
       setDeletingId(null);
     }
   };
 
-  const totalProjects = projects.length;
-  const confirmedTemplates = projects.filter((p) => p.template_map_confirmed).length;
-
   return (
     <div>
       <div className="page-header">
         <div className="page-title-group">
-          <h1>Evaluation Projects</h1>
-          <p>Manage exam rubrics, template region maps, and answer sheet uploads.</p>
+          <div className="eyebrow">Projects</div>
+          <h1>Evaluation projects</h1>
+          <p>Manage assessment rubrics, template maps, answer sheets, and examiner reviews.</p>
         </div>
         <Link to="/projects/new" className="btn btn-primary">
-          <FolderPlus size={18} /> Create New Project
+          <FolderPlus size={18} /> Create project
         </Link>
       </div>
 
-      {/* Quick Stats Banner */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "1rem", marginBottom: "2rem" }}>
-        <div className="card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ padding: "10px", background: "var(--color-brand-50)", borderRadius: "var(--radius-md)", color: "var(--color-brand-600)" }}>
-            <Layers size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, fontFamily: "var(--font-display)" }}>{totalProjects}</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--color-slate-500)" }}>Total Projects</div>
-          </div>
+      <div className="stats-grid">
+        <div className="card stat-card">
+          <div className="stat-icon stat-icon-indigo"><Layers size={21} /></div>
+          <div><strong>{projects.length}</strong><span>Total projects</span></div>
         </div>
-
-        <div className="card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ padding: "10px", background: "var(--color-emerald-50)", borderRadius: "var(--radius-md)", color: "var(--color-emerald-600)" }}>
-            <FileCheck size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, fontFamily: "var(--font-display)" }}>{confirmedTemplates}</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--color-slate-500)" }}>Templates Confirmed</div>
-          </div>
+        <div className="card stat-card">
+          <div className="stat-icon stat-icon-success"><FileCheck size={21} /></div>
+          <div><strong>{confirmedTemplates}</strong><span>Templates confirmed</span></div>
         </div>
-
-        <div className="card" style={{ padding: "1.25rem", display: "flex", alignItems: "center", gap: "1rem" }}>
-          <div style={{ padding: "10px", background: "var(--color-amber-50)", borderRadius: "var(--radius-md)", color: "var(--color-amber-600)" }}>
-            <ShieldLock size={24} />
-          </div>
-          <div>
-            <div style={{ fontSize: "1.5rem", fontWeight: 800, fontFamily: "var(--font-display)" }}>100%</div>
-            <div style={{ fontSize: "0.85rem", color: "var(--color-slate-500)" }}>Anti-Bias Lock Active</div>
-          </div>
+        <div className="card stat-card">
+          <div className="stat-icon stat-icon-warning"><Clock size={21} /></div>
+          <div><strong>{needsReview}</strong><span>Projects needing review</span></div>
         </div>
       </div>
 
       {error && (
-        <div className="alert alert-error">
-          <span>Failed to load projects: {error}</span>
+        <div className="alert alert-error" role="alert">
+          <span><strong>Projects could not be loaded.</strong> {error}</span>
+          <button type="button" className="btn btn-quiet" onClick={loadProjects}>Retry</button>
         </div>
       )}
 
       {loading ? (
-        <div style={{ textAlign: "center", padding: "3rem", color: "var(--color-slate-500)" }}>
-          Loading projects...
-        </div>
+        <div className="loading-state" role="status">Loading projects…</div>
       ) : projects.length === 0 ? (
         <div className="empty-state">
-          <div className="empty-state-icon">
-            <Layers size={28} />
-          </div>
+          <div className="empty-state-icon"><Layers size={28} /></div>
           <h3>No projects yet</h3>
-          <p>Get started by scaffolding your first evaluation project with rubric PDFs.</p>
-          <Link to="/projects/new" className="btn btn-primary">
-            <FolderPlus size={18} /> Create Project
-          </Link>
+          <p>Create an assessment project from a rubric, question paper, and blank answer booklet.</p>
+          <Link to="/projects/new" className="btn btn-primary"><FolderPlus size={18} /> Create project</Link>
         </div>
       ) : (
         <div className="card-grid">
-          {projects.map((project) => (
-            <div key={project.id} className="card" style={{ display: "flex", flexDirection: "column", justifyContent: "space-between" }}>
-              <div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "0.75rem" }}>
-                  <span className={`badge ${project.template_map_confirmed ? "badge-success" : "badge-warning"}`}>
-                    {project.template_map_confirmed ? (
-                      <>
-                        <CheckCircle2 size={12} /> Confirmed
-                      </>
-                    ) : (
-                      <>
-                        <Clock size={12} /> Pending Review
-                      </>
-                    )}
-                  </span>
-
-                  {project.rubric_locked && (
-                    <span className="badge badge-indigo" title="Rubric is permanently locked against modification">
-                      <ShieldLock size={12} /> Rubric Locked
+          {projects.map((project) => {
+            const ready = project.template_map_confirmed && project.question_bank_confirmed;
+            return (
+              <article key={project.id} className="card project-card">
+                <div>
+                  <div className="project-card-topline">
+                    <span className={`badge ${ready ? "badge-success" : "badge-warning"}`}>
+                      {ready ? <CheckCircle2 size={12} /> : <Clock size={12} />}
+                      {ready ? "Ready for answer sheets" : "Setup needs review"}
                     </span>
-                  )}
+                    {project.rubric_locked && <span className="badge badge-indigo"><ShieldLock size={12} /> Rubric locked</span>}
+                  </div>
+                  <h2>{project.name}</h2>
+                  <p className="muted-text">Created {formatDate(project.created_at)}</p>
+                  <p className="project-next-action">
+                    {ready ? "Upload an answer sheet to begin processing." : !project.template_map_confirmed ? "Review the template map before uploading." : "Review and confirm the question bank before grading."}
+                  </p>
                 </div>
-
-                <h3 style={{ fontSize: "1.2rem", fontWeight: 700, fontFamily: "var(--font-display)", color: "var(--color-slate-900)", marginBottom: "0.5rem" }}>
-                  {project.name}
-                </h3>
-                <p style={{ fontSize: "0.85rem", color: "var(--color-slate-500)", marginBottom: "1.25rem" }}>
-                  Created {new Date(project.created_at).toLocaleDateString()} at {new Date(project.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                </p>
-              </div>
-
-              <div style={{ borderTop: "1px solid var(--color-slate-100)", paddingTop: "1rem", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                <span style={{ fontSize: "0.8rem", color: "var(--color-slate-600)" }}>
-                  ID: <code style={{ fontFamily: "var(--font-mono)", fontSize: "0.75rem" }}>{project.id.slice(0, 8)}</code>
-                </span>
-                <div style={{ display: "flex", gap: "0.5rem" }}>
-                  <button
-                    type="button"
-                    className="btn btn-danger"
-                    style={{ padding: "0.4rem 0.6rem", fontSize: "0.85rem" }}
-                    onClick={() => handleDelete(project.id, project.name)}
-                    disabled={deletingId === project.id}
-                    title="Delete project permanently"
-                  >
-                    <Trash2 size={14} />
-                  </button>
-                  <Link to={`/projects/${project.id}`} className="btn btn-secondary" style={{ padding: "0.4rem 0.85rem", fontSize: "0.85rem" }}>
-                    Open <ArrowRight size={14} />
-                  </Link>
+                <div className="project-card-footer">
+                  <span className="id-text">ID {project.id.slice(0, 8)}</span>
+                  <div className="button-row">
+                    <button
+                      type="button"
+                      className="icon-button danger"
+                      onClick={() => handleDelete(project.id, project.name)}
+                      disabled={deletingId === project.id}
+                      aria-label={`Delete ${project.name}`}
+                      title="Delete project"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                    <Link to={`/projects/${project.id}`} className="btn btn-secondary btn-sm">Open <ArrowRight size={14} /></Link>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
+              </article>
+            );
+          })}
         </div>
       )}
     </div>
