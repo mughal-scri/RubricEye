@@ -3,12 +3,7 @@
 # ============================
 # These contain proprietary architecture/strategy decisions and should
 # stay local even if this repo (or parts of it) become public/shared.
-RubricEye_PRD.md
-RubricEye_TechDoc.md
-RubricEye_Architecture.md
-RubricEye_Roadmap.md
-RubricEye_FutureAdditions.md
-DOCS/mini_grader.py
+/DOCS
 # ============================
 # Secrets — never commit these
 # ============================
@@ -25,7 +20,7 @@ DOCS/mini_grader.py
 *.worktrees/
 ./temp/*
 temp/
-/DOCS
+
 # ============================
 # Python (backend)
 # ============================

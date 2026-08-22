@@ -71,6 +71,8 @@ class ProjectDetail(ProjectSummary):
 class RegionRef(BaseModel):
     page_index: int
     bbox: list[int]
+    nominal_bbox: list[int] | None = None
+    overflow_detected: bool = False
 
 
 class AnswerSheetSummary(BaseModel):

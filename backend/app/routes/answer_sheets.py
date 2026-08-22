@@ -10,7 +10,7 @@ from app.db.database import get_db
 from app.db.models import AnswerSheet, Project
 from app.schemas.models import AnswerSheetDetail, AnswerSheetSummary, RegionRef
 from app.services import storage
-from app.services.cover_page_check import looks_like_identity_cover_page
+from app.services.cover_page_check import identity_page_indexes
 from app.services.pdf_pipeline import pdf_to_ordered_images
 from app.services.segmentation import build_question_region_map, load_template_map_pages
 
@@ -50,7 +50,15 @@ def _sheet_to_detail(sheet: AnswerSheet) -> AnswerSheetDetail:
             ]
 
     mapped = {
-        key: [RegionRef(page_index=ref["page_index"], bbox=ref["bbox"]) for ref in refs]
+        key: [
+            RegionRef(
+                page_index=ref["page_index"],
+                bbox=ref["bbox"],
+                nominal_bbox=ref.get("nominal_bbox"),
+                overflow_detected=bool(ref.get("overflow_detected", False)),
+            )
+            for ref in refs
+        ]
         for key, refs in question_region_map.items()
     }
     return AnswerSheetDetail(
@@ -122,13 +130,6 @@ async def upload_answer_sheet(
     if not page_paths:
         raise HTTPException(status_code=400, detail="PDF contains no pages.")
 
-    is_identity_page, reason = looks_like_identity_cover_page(page_paths[0])
-    if is_identity_page:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Upload rejected: {reason} Remove identity pages before scanning.",
-        )
-
     project_dir = storage.project_dir(project_id)
     alignment_reference = {}
     alignment_path = project_dir / "alignment_reference.json"
@@ -138,12 +139,24 @@ async def upload_answer_sheet(
         alignment_reference = json.loads(project.alignment_reference_json)
 
     template_pages = load_template_map_pages(project_dir)
+    identity_indexes = set(identity_page_indexes(str(pdf_path), rendered_page_paths=page_paths))
+    answer_page_numbers = [page["page_number"] for page in template_pages if page.get("regions")]
+    if answer_page_numbers:
+        first_answer_page = min(answer_page_numbers)
+        identity_indexes.update(range(0, max(0, first_answer_page - 1)))
+    # Identity/front-matter pages remain stored locally for audit/review, but are
+    # never passed into segmentation or grading. Exclusion is learned from the
+    # uploaded blank booklet's own semantic map, not a fixed page number.
+    if len(identity_indexes) == len(page_paths):
+        raise HTTPException(status_code=422, detail="Upload contains no answer pages after local front-matter exclusion.")
+
     regions_dir = sheet_dir / "regions"
     question_region_map, _preview_paths = build_question_region_map(
         page_paths,
         template_pages,
         alignment_reference,
         regions_dir,
+        skip_page_indices=identity_indexes,
     )
 
     sheet = AnswerSheet(

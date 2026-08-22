@@ -66,7 +66,7 @@ def _run_template_derivation(db: Session, project: Project) -> None:
     db.query(TemplateMapPage).filter(TemplateMapPage.project_id == project.id).delete()
     db.commit()
 
-    result = derive_template_map(page_paths)
+    result = derive_template_map(page_paths, source_pdf_path=project.blank_booklet_file_path)
     project.alignment_reference_json = json.dumps(result.alignment_reference)
     project.template_map_status = "ready" if result.confidence != "low" else "needs_review"
     project.template_map_error = None

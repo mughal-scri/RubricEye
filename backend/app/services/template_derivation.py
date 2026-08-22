@@ -6,17 +6,23 @@ from pathlib import Path
 
 import cv2
 import numpy as np
+import pymupdf
 import pytesseract
 from pytesseract import Output
 
 from app.services.template_types import DerivationResult, DetectedRegion
 from app.services.template_vision_fallback import extract_regions_with_vision
 
-
+# The label is semantic, not a fixed question list. It supports labels such as
+# Q2(i), Q3(A), Question 4b, and Q12.
 QUESTION_PATTERN = re.compile(
-    r"(?:Q(?:uestion)?\.?\s*)?(\d+)\s*([a-z])?",
+    r"\bQ(?:uestion)?\s*\.?\s*(\d+)\s*(?:\(\s*([A-Za-z]{1,8})\s*\)|([A-Za-z]{1,8}))?",
     re.IGNORECASE,
 )
+
+
+def _normalise_part(part: str | None) -> str:
+    return (part or "").strip().strip("().").lower()
 
 
 def _detect_lines(gray: np.ndarray) -> tuple[list[int], list[int]]:
@@ -31,9 +37,7 @@ def _detect_lines(gray: np.ndarray) -> tuple[list[int], list[int]]:
                 horizontals.append(int((y1 + y2) / 2))
             elif abs(x2 - x1) < 8:
                 verticals.append(int((x1 + x2) / 2))
-    horizontals = sorted(set(horizontals))
-    verticals = sorted(set(verticals))
-    return horizontals, verticals
+    return sorted(set(horizontals)), sorted(set(verticals))
 
 
 def _cluster_positions(values: list[int], tolerance: int = 12) -> list[int]:
@@ -49,6 +53,12 @@ def _cluster_positions(values: list[int], tolerance: int = 12) -> list[int]:
 
 
 def _find_answer_boxes(gray: np.ndarray, horizontals: list[int], verticals: list[int]) -> list[list[int]]:
+    """Recover raster rectangles as a fallback, never inventing labels.
+
+    This deliberately returns only geometry. A region receives a question label
+    only when an OCR or PDF-text anchor can be matched to it, or when the vision
+    fallback supplies one.
+    """
     height, width = gray.shape
     boxes: list[list[int]] = []
     hs = _cluster_positions(horizontals)
@@ -79,23 +89,23 @@ def _ocr_question_labels(image_path: Path) -> list[tuple[str, str, list[int]]]:
     n = len(data["text"])
     for i in range(n):
         text = (data["text"][i] or "").strip()
-        conf = int(float(data["conf"][i])) if data["conf"][i] != "-1" else -1
+        try:
+            conf = float(data["conf"][i])
+        except (TypeError, ValueError):
+            conf = -1
         if conf < 40 or not text:
             continue
         match = QUESTION_PATTERN.search(text)
         if not match:
             continue
         q_num = match.group(1)
-        part = (match.group(2) or "").lower()
+        part = _normalise_part(match.group(2) or match.group(3))
         x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
         labels.append((q_num, part, [x, y, x + w, y + h]))
     return labels
 
 
-def _assign_boxes_to_labels(
-    labels: list[tuple[str, str, list[int]]],
-    boxes: list[list[int]],
-) -> list[DetectedRegion]:
+def _assign_boxes_to_labels(labels: list[tuple[str, str, list[int]]], boxes: list[list[int]]) -> list[DetectedRegion]:
     regions: list[DetectedRegion] = []
     used_boxes: set[int] = set()
     for q_num, part, label_bbox in labels:
@@ -105,67 +115,175 @@ def _assign_boxes_to_labels(
         for idx, box in enumerate(boxes):
             if idx in used_boxes:
                 continue
-            x1, y1, x2, y2 = box
+            x1, y1, x2, _ = box
             if y1 < ly2:
                 continue
-            score = abs(x1 - lx) + (y1 - ly2)
+            horizontal_distance = 0 if x1 <= lx <= x2 else min(abs(x1 - lx), abs(x2 - lx))
+            score = horizontal_distance + (y1 - ly2)
             if score < best_score:
                 best_score = score
                 best_idx = idx
         if best_idx is not None:
             used_boxes.add(best_idx)
-            regions.append(
-                DetectedRegion(
-                    question_number=q_num,
-                    part_label=part,
-                    bbox=boxes[best_idx],
-                )
-            )
-    # Do not fabricate sequential question labels when OCR found no real match.
-    # An empty result is intentional: derive_template_map will then escalate to
-    # the already-built vision fallback instead of presenting false confidence.
+            regions.append(DetectedRegion(question_number=q_num, part_label=part, bbox=boxes[best_idx]))
+    # An unmatched label is not silently assigned a made-up region.
     return regions
 
 
-def _derive_page(image_path: Path) -> tuple[list[DetectedRegion], dict]:
+def _raster_page_alignment(image_path: Path) -> dict:
     image = cv2.imread(str(image_path))
+    if image is None:
+        return {"horizontal_lines": [], "vertical_lines": [], "width": None, "height": None}
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    horizontals, verticals = _detect_lines(gray)
+    return {
+        "horizontal_lines": _cluster_positions(horizontals),
+        "vertical_lines": _cluster_positions(verticals),
+        "width": int(image.shape[1]),
+        "height": int(image.shape[0]),
+        "reference_image_path": str(image_path),
+    }
+
+
+def _derive_page_from_raster(image_path: Path) -> tuple[list[DetectedRegion], dict]:
+    image = cv2.imread(str(image_path))
+    if image is None:
+        return [], _raster_page_alignment(image_path)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     horizontals, verticals = _detect_lines(gray)
     boxes = _find_answer_boxes(gray, horizontals, verticals)
     labels = _ocr_question_labels(image_path)
-    regions = _assign_boxes_to_labels(labels, boxes)
-    alignment = {
+    return _assign_boxes_to_labels(labels, boxes), {
         "horizontal_lines": _cluster_positions(horizontals),
         "vertical_lines": _cluster_positions(verticals),
         "width": int(image.shape[1]),
         "height": int(image.shape[0]),
     }
-    return regions, alignment
 
 
-def derive_template_map(page_image_paths: list[str]) -> DerivationResult:
+def _scale_pdf_bbox(bbox: tuple[float, float, float, float], page: pymupdf.Page, image_path: Path) -> list[int]:
+    image = cv2.imread(str(image_path))
+    if image is None:
+        return [round(value) for value in bbox]
+    sx = image.shape[1] / page.rect.width
+    sy = image.shape[0] / page.rect.height
+    x1, y1, x2, y2 = bbox
+    return [round(x1 * sx), round(y1 * sy), round(x2 * sx), round(y2 * sy)]
+
+
+def _pdf_answer_rects(page: pymupdf.Page) -> list[tuple[float, float, float, float]]:
+    rects: list[tuple[float, float, float, float]] = []
+    page_area = page.rect.width * page.rect.height
+    for drawing in page.get_drawings():
+        rect = drawing.get("rect")
+        if rect is None:
+            continue
+        area = rect.width * rect.height
+        if rect.width >= page.rect.width * 0.98 and rect.height >= page.rect.height * 0.98:
+            continue
+        if rect.width < page.rect.width * 0.35 or rect.height < page.rect.height * 0.08:
+            continue
+        if area < page_area * 0.03:
+            continue
+        rects.append((rect.x0, rect.y0, rect.x1, rect.y1))
+    return sorted(set(rects), key=lambda rect: (rect[1], rect[0]))
+
+
+def _derive_page_from_pdf(page: pymupdf.Page, image_path: Path) -> list[DetectedRegion]:
+    anchors: list[tuple[str, str, tuple[float, float, float, float]]] = []
+    for block in page.get_text("blocks"):
+        x0, y0, x1, y1, text, *_ = block
+        match = QUESTION_PATTERN.search(" ".join(text.split()))
+        if match:
+            anchors.append((match.group(1), _normalise_part(match.group(2) or match.group(3)), (x0, y0, x1, y1)))
+    if not anchors:
+        return []
+
+    rects = _pdf_answer_rects(page)
+    regions: list[DetectedRegion] = []
+    used_rects: set[int] = set()
+    for index, (q_num, part, anchor) in enumerate(anchors):
+        x0, y0, x1, y1 = anchor
+        best_index = None
+        best_score = float("inf")
+        for rect_index, rect in enumerate(rects):
+            if rect_index in used_rects or rect[1] < y1:
+                continue
+            horizontal_overlap = max(0.0, min(x1, rect[2]) - max(x0, rect[0]))
+            if horizontal_overlap == 0:
+                continue
+            score = (rect[1] - y1) + abs(rect[0] - x0) * 0.05
+            if score < best_score:
+                best_score = score
+                best_index = rect_index
+        if best_index is not None:
+            used_rects.add(best_index)
+            bbox = _scale_pdf_bbox(rects[best_index], page, image_path)
+        else:
+            # For scanned/vector hybrids with no closed rectangle, create a
+            # page-derived band bounded by neighboring semantic anchors. This is
+            # computed from the input page, never from a fixed exam template.
+            next_y = anchors[index + 1][2][1] if index + 1 < len(anchors) else page.rect.height * 0.94
+            bbox = _scale_pdf_bbox((page.rect.width * 0.08, y1 + 8, page.rect.width * 0.92, max(y1 + 40, next_y - 8)), page, image_path)
+        regions.append(DetectedRegion(question_number=q_num, part_label=part, bbox=bbox))
+    return regions
+
+
+def derive_template_map(page_image_paths: list[str], source_pdf_path: str | None = None) -> DerivationResult:
+    """Derive semantic answer regions from the supplied booklet itself.
+
+    A text/vector PDF is parsed directly for its own question anchors and answer
+    geometry. A scanned or flattened booklet uses OCR/CV, and a low-information
+    result escalates to the existing vision fallback. No question list or page
+    coordinates are embedded in this function.
+    """
     pages: dict[int, list[DetectedRegion]] = {}
     alignment_pages: dict[str, dict] = {}
     total_regions = 0
-    low_confidence = False
+    pdf_anchor_regions = 0
+    pdf_doc: pymupdf.Document | None = None
+    if source_pdf_path:
+        try:
+            pdf_doc = pymupdf.open(source_pdf_path)
+        except Exception:
+            pdf_doc = None
 
-    for idx, path in enumerate(page_image_paths, start=1):
-        regions, alignment = _derive_page(Path(path))
-        pages[idx] = regions
-        alignment_pages[str(idx)] = alignment
-        total_regions += len(regions)
-        if len(regions) == 0:
-            low_confidence = True
+    try:
+        for idx, path in enumerate(page_image_paths, start=1):
+            image_path = Path(path)
+            alignment_pages[str(idx)] = _raster_page_alignment(image_path)
+            regions: list[DetectedRegion] = []
+            if pdf_doc is not None and idx <= len(pdf_doc):
+                regions = _derive_page_from_pdf(pdf_doc[idx - 1], image_path)
+                pdf_anchor_regions += len(regions)
+            if not regions:
+                regions, alignment_pages[str(idx)] = _derive_page_from_raster(image_path)
+            pages[idx] = regions
+            total_regions += len(regions)
+    finally:
+        if pdf_doc is not None:
+            pdf_doc.close()
 
-    confidence = "low" if low_confidence or total_regions < 2 else "high"
+    # Empty cover/rough-work pages are normal. Trigger vision only when the
+    # booklet yielded too little semantic structure overall.
+    # If the uploaded blank booklet is a flattened scan, its OCR/CV result is
+    # only a provisional signal. Ask the vision model to understand the page
+    # semantics rather than accepting a partially matched map as high confidence.
+    flattened_booklet = source_pdf_path is not None and pdf_anchor_regions == 0
+    confidence = "low" if total_regions < 2 or flattened_booklet else "high"
     used_vision_fallback = False
-
     if confidence == "low":
         vision_result = extract_regions_with_vision(page_image_paths)
         if vision_result.pages:
-            pages = vision_result.pages
-            alignment_pages = vision_result.alignment_reference.get("pages", alignment_pages)
-            confidence = vision_result.confidence
+            for page_number, fallback_regions in vision_result.pages.items():
+                if fallback_regions:
+                    pages[page_number] = fallback_regions
+            fallback_pages = vision_result.alignment_reference.get("pages", {})
+            for page_number, reference in fallback_pages.items():
+                if reference.get("width") and reference.get("height"):
+                    alignment_pages[page_number] = reference
+            total_regions = sum(len(regions) for regions in pages.values())
+            confidence = vision_result.confidence if total_regions else "low"
             used_vision_fallback = True
 
     return DerivationResult(
@@ -177,24 +295,10 @@ def derive_template_map(page_image_paths: list[str]) -> DerivationResult:
 
 
 def regions_to_json(regions: list[DetectedRegion]) -> str:
-    payload = [
-        {
-            "question_number": region.question_number,
-            "part_label": region.part_label,
-            "bbox": region.bbox,
-        }
-        for region in regions
-    ]
+    payload = [{"question_number": region.question_number, "part_label": region.part_label, "bbox": region.bbox} for region in regions]
     return json.dumps(payload)
 
 
 def regions_from_json(raw: str) -> list[DetectedRegion]:
     data = json.loads(raw or "[]")
-    return [
-        DetectedRegion(
-            question_number=item["question_number"],
-            part_label=item.get("part_label", ""),
-            bbox=item["bbox"],
-        )
-        for item in data
-    ]
+    return [DetectedRegion(question_number=item["question_number"], part_label=item.get("part_label", ""), bbox=item["bbox"]) for item in data]

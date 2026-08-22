@@ -267,10 +267,18 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
             grading_status=graded.grading_status, error_message=graded.error_message, graded_at=now,
         )
 
+    overflow_by_key = {
+        key: any(bool(ref.get("overflow_detected", False)) for ref in refs)
+        for key, refs in question_region_map.items()
+    }
+    for stored_result in db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all():
+        region_keys = resolve_region_keys_for_question(stored_result.question_number, list(question_region_map.keys()))
+        stored_result.truncation_flag = any(overflow_by_key.get(key, False) for key in region_keys)
     db.commit()
 
     any_hard_failure = any(r.grading_status == "failed" for r in graded_results) or bool(filtered.no_regions)
-    sheet.grading_status = "failed" if any_hard_failure else "review_required"
+    requires_review = any(r.grading_status == "complete" for r in graded_results)
+    sheet.grading_status = "failed" if any_hard_failure else ("review_required" if requires_review else "complete")
     db.commit()
 
     return GradeTriggerResponse(
@@ -366,6 +374,7 @@ def confirm_result(
             GradingResult.answer_sheet_id == sheet.id,
             GradingResult.id != result.id,
             GradingResult.reviewed.is_(False),
+            GradingResult.choice_status == "graded",
             GradingResult.grading_status != "failed",
         )
         .count()
