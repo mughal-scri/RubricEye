@@ -16,6 +16,13 @@ export interface ProjectDetail extends ProjectSummary {
   question_paper_file_path: string;
   blank_booklet_file_path: string;
   question_bank_marks_warning: string | null;
+  question_bank_raw_total?: number | null;
+  question_bank_stated_total?: number | null;
+  question_bank_effective_total?: number | null;
+  question_bank_structure_status?: string;
+  rubric_source_mode?: "uploaded" | "text" | "studio";
+  rubric_studio_status?: string;
+  rubric_download_url?: string | null;
   template_map_error?: string | null;
 }
 
@@ -59,11 +66,20 @@ export interface AnswerSheetSummary {
   uploaded_at: string;
   page_count: number;
   grading_status: string;
+  report_ready?: boolean;
+  report_download_url?: string | null;
+  completed_at?: string | null;
 }
 
 export interface RegionRef {
   page_index: number;
   bbox: number[];
+  nominal_bbox?: number[] | null;
+  overflow_detected?: boolean;
+  alignment_method?: string;
+  alignment_confidence?: string;
+  alignment_uncertain?: boolean;
+  page_correspondence_uncertain?: boolean;
 }
 
 export interface AnswerSheetDetail extends AnswerSheetSummary {
@@ -182,7 +198,12 @@ export interface QuestionBankItem {
   question_number: string;
   marks_possible: number | null;
   key_points: string | null;
+  section_label?: string | null;
+  question_text?: string | null;
   question_image_path: string | null;
+  rubric_provenance?: string | null;
+  rubric_confidence?: "high" | "medium" | "low" | null;
+  rubric_reviewed?: boolean;
 }
 
 export interface QuestionBankListResponse {
@@ -202,6 +223,41 @@ export interface QuestionBankConfirmResponse {
   total_marks_extracted: number;
   total_marks_on_paper: number | null;
   marks_mismatch_warning: string | null;
+  effective_total?: number | null;
+  structure_status?: string;
+  structure_warning?: string | null;
+}
+
+export interface RubricStudioCriterion extends QuestionBankItem {
+  rubric_provenance: string | null;
+  rubric_confidence: "high" | "medium" | "low" | null;
+  rubric_reviewed?: boolean;
+  section_label?: string | null;
+  question_text?: string | null;
+}
+
+export interface RubricStudioResponse {
+  project_id: string;
+  status: string;
+  source_mode: string;
+  criteria: RubricStudioCriterion[];
+  warning: string | null;
+  manual_upload_available: boolean;
+  all_criteria_reviewed: boolean;
+  generated_rubric_download_url?: string | null;
+}
+
+export interface RubricStudioPreviewResponse {
+  status: string;
+  criteria: RubricStudioCriterionDraft[];
+  warning: string | null;
+  manual_upload_available: boolean;
+  generated_rubric_download_url?: string | null;
+}
+
+export interface RubricStudioExportResponse {
+  download_url: string;
+  filename: string;
 }
 
 export function listQuestionBank(projectId: string): Promise<QuestionBankListResponse> {
@@ -240,6 +296,57 @@ export function confirmQuestionBank(projectId: string): Promise<QuestionBankConf
   return request(`/projects/${projectId}/question-bank/confirm`, { method: "POST" });
 }
 
+export interface RubricStudioCriterionDraft {
+  question_number: string;
+  marks_possible: number | null;
+  key_points: string | null;
+  section_label?: string | null;
+  question_text?: string | null;
+  rubric_provenance: string | null;
+  rubric_confidence: "high" | "medium" | "low" | null;
+  rubric_reviewed: boolean;
+}
+
+export function previewRubricStudio(questionPaper: File): Promise<RubricStudioPreviewResponse> {
+  const formData = new FormData();
+  formData.append("question_paper", questionPaper);
+  return request("/projects/rubric-studio/preview", { method: "POST", body: formData });
+}
+
+export function exportRubricStudioPdf(projectName: string, criteria: RubricStudioCriterionDraft[]): Promise<RubricStudioExportResponse> {
+  return request("/projects/rubric-studio/export", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ project_name: projectName, criteria }),
+  });
+}
+
+export function getRubricStudio(projectId: string): Promise<RubricStudioResponse> {
+  return request(`/projects/${projectId}/rubric-studio`);
+}
+
+export function generateRubricStudio(projectId: string): Promise<RubricStudioResponse> {
+  return request(`/projects/${projectId}/rubric-studio/generate`, { method: "POST" });
+}
+
+export function updateRubricStudioCriterion(projectId: string, questionNumber: string, payload: { marks_possible?: number | null; key_points?: string | null; section_label?: string | null; question_text?: string | null; rubric_reviewed?: boolean }): Promise<RubricStudioCriterion> {
+  return request(`/projects/${projectId}/rubric-studio/${encodeURIComponent(questionNumber)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
+export function approveRubricStudio(projectId: string): Promise<RubricStudioResponse> {
+  return request(`/projects/${projectId}/rubric-studio/approve`, { method: "POST" });
+}
+
+export function uploadManualRubric(projectId: string, rubric: File): Promise<RubricStudioResponse> {
+  const formData = new FormData();
+  formData.append("rubric", rubric);
+  return request(`/projects/${projectId}/rubric-studio/manual-upload`, { method: "POST", body: formData });
+}
+
 export function unlockQuestionBank(projectId: string): Promise<QuestionBankListResponse> {
   return request(`/projects/${projectId}/question-bank/unlock`, { method: "POST" });
 }
@@ -255,6 +362,7 @@ export interface QuestionGroup {
   selection_type: "compulsory" | "choose_n_of_m";
   question_numbers: string[];
   n_required: number | null;
+  selection_units?: string[][];
 }
 
 export interface QuestionGroupCreate {
@@ -262,6 +370,7 @@ export interface QuestionGroupCreate {
   selection_type: "compulsory" | "choose_n_of_m";
   question_numbers: string[];
   n_required?: number | null;
+  selection_units?: string[][];
 }
 
 export function listQuestionGroups(projectId: string): Promise<QuestionGroup[]> {
@@ -347,6 +456,17 @@ export interface AnswerSheetResultsResponse {
   grading_status: string;
   results: GradingResult[];
   summary: AnswerSheetResultsSummary;
+  report_ready?: boolean;
+  report_download_url?: string | null;
+  completed_at?: string | null;
+}
+
+export interface ReportResponse {
+  answer_sheet_id: string;
+  report_ready: boolean;
+  report_download_url: string | null;
+  completed_at: string | null;
+  blockers: string[];
 }
 
 export interface ExaminerConfirmRequest {
@@ -366,6 +486,10 @@ export interface GradeTriggerResponse {
 
 export function gradeAnswerSheet(projectId: string, sheetId: string): Promise<GradeTriggerResponse> {
   return request(`/projects/${projectId}/answer-sheets/${sheetId}/grade`, { method: "POST" });
+}
+
+export function createExaminerReport(projectId: string, sheetId: string): Promise<ReportResponse> {
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}/report`, { method: "POST" });
 }
 
 export function listGradingResults(

@@ -19,9 +19,13 @@ Manual grading of handwritten exams is slow and inconsistent — the same answer
 
 ## Status
 
-**Core infrastructure and Phase 2 grading integration are implemented.** The current hardening pass has also added semantic template derivation from the uploaded booklet’s own PDF anchors and vector geometry, a stronger vision fallback contract for arbitrary layouts, learned front-matter/identity-page exclusion, validated scan-to-template feature registration, overflow-aware crops, confidence-gating and alignment repairs, score-bound validation, question-group validation, project-creation failure recording, soft-delete/Trash recovery, explicit `review_required` sheet status, and the evidence-first frontend review pass.
+**Core infrastructure and Phase 2 grading integration are implemented.** The current build also includes semantic template derivation from each uploaded booklet’s own PDF anchors and vector geometry, a vision fallback contract for arbitrary layouts, learned front-matter/identity-page exclusion, validated scan-to-template feature registration, overflow-aware crops, confidence gating, alignment repairs, score-bound validation, question-group validation, project-creation failure recording, soft-delete/Trash recovery, explicit `review_required` sheet status, and evidence-first human review.
 
-The highest-risk remaining validation is an end-to-end run against real handwritten answer booklets. Synthetic and mocked validation are useful regression checks, but they do not replace inspecting real template maps, segmentation crops, ink-density ratios, and grading quality.
+The follow-up workflow now distinguishes raw extracted marks from the effective candidate maximum for optional sections, persists compound choice units, locks blank and beyond-limit answers as local decisions, keeps ambiguous ink states examiner-resolvable, and produces persistent downloadable examiner-report PDFs after confirmation. Project creation is staged as question paper → blank booklet → rubric source → confirmation, with official PDF, pasted text, and Rubric Studio options. Ordinary booklet review presents a page-by-page label summary rather than coordinate boundaries. The optional-section parser is document-derived rather than tied to a literal section name and accepts varied exam wording. Question Bank and Rubric Studio criteria editors expand to their content instead of remaining fixed-height.
+
+**Phase C Rubric Studio is implemented as an explicit opt-in path and as a standalone worker.** It makes one user-triggered provider call from the selected question paper, uses text first and page-image fallback for scanned papers, shows provenance and confidence for every provisional criterion, lets the examiner edit the ordered criteria without per-question confirmation checkboxes, exports the edited result as a structured PDF, and locks only after the complete draft is saved. Official PDF and pasted-text paths remain available whenever generation is unavailable or partial.
+
+The remaining intentionally separate validation is a controlled end-to-end run against real handwritten answer booklets using a provider key. Synthetic and mocked validation are useful regression checks, but they do not replace inspecting real template maps, segmentation crops, ink-density ratios, overflow signals, and grading quality. The Studio model is configurable through `RUBRICEYE_STUDIO_MODEL`; no key or provider call is required for local validation.
 
 ## Documentation
 
@@ -42,6 +46,7 @@ Start here, in this order:
 - **Storage:** SQLite (WAL mode) + local filesystem
 - **PDF processing:** PyMuPDF
 - **Grading engine:** Alibaba Cloud Qwen-VL-Max (DashScope, OpenAI-compatible API)
+- **Studio vision engine:** Alibaba Cloud Model Studio `qwen3.7-plus` by default, configured independently so graphical/scanned question-paper drafting can use multimodal input without changing the grading model.
 
 ## Getting Started
 
@@ -75,6 +80,17 @@ PYTHONPATH=backend python3 backend/scripts/validate_real_template.py
 PYTHONPATH=backend python3 backend/scripts/validate_real_segmentation.py
 PYTHONPATH=backend python3 backend/scripts/validate_real_original_upload.py
 PYTHONPATH=backend python3 backend/scripts/validate_identity_detection.py
+PYTHONPATH=backend python3 backend/scripts/validate_paper_structure.py
+PYTHONPATH=backend python3 backend/scripts/validate_generic_paper_structure.py
+PYTHONPATH=backend python3 backend/scripts/validate_question_bank_effective_api.py
+PYTHONPATH=backend python3 backend/scripts/validate_rubric_studio.py
+PYTHONPATH=backend python3 backend/scripts/validate_rubric_sources.py
+PYTHONPATH=backend python3 backend/scripts/validate_frontend_source_guards.py
+(cd frontend && npx tsc --noEmit && npm run build)
+PYTHONPATH=backend python3 backend/scripts/validate_unattempted_lock.py
+PYTHONPATH=backend python3 backend/scripts/validate_report_lifecycle.py
+PYTHONPATH=backend python3 backend/scripts/validate_phase1.py
+(cd frontend && npm ci --no-audit --no-fund && npx tsc --noEmit && npm run build)
 ```
 
 These loops cover backend hardening without billed model calls. The real-template loop validates the supplied blank booklet’s semantic labels and 11 answer regions. Set `RUBRICEYE_REAL_FIXTURES_DIR` to the directory containing the blank booklet, question paper, rubric, and answer books before running the portable real-material loops. The real-segmentation loop strips identity covers and checks all three supplied answer books for mapped region coverage, preview generation, and overflow signals; it does not grade. The original-upload loop uploads the original PDFs unchanged and verifies that identity/front-matter pages are excluded locally while page indexes remain aligned; it also does not grade. The identity-detection loop verifies a raster-only cover is excluded while a normal question containing the word “Name” is not falsely excluded. `backend/scripts/validate_phase2.py` intentionally uses real Qwen-VL-Max calls and should be run only after these local loops pass and a real API test is desired. Before submission, run the complete workflow against the three sanitized handwritten booklets and record the results.

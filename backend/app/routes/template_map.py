@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
+
+from PIL import Image
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
@@ -19,6 +22,14 @@ from app.services import storage
 from app.services.template_derivation import regions_from_json, regions_to_json
 
 router = APIRouter(prefix="/projects", tags=["template-map"])
+
+
+@dataclass(frozen=True)
+class _RegionValidationPayload:
+    page_number: int
+    question_number: str
+    part_label: str
+    bbox: list
 
 
 def _page_image_url(project_id: str, page_number: int) -> str:
@@ -49,6 +60,42 @@ def _build_template_map_response(project: Project, pages: list[TemplateMapPage])
         status=project.template_map_status,
         pages=page_responses,
     )
+
+
+def _validate_regions(regions: list, pages: dict[int, TemplateMapPage], *, require_any: bool) -> dict[int, list[dict]]:
+    if require_any and not regions:
+        raise HTTPException(status_code=422, detail="At least one mapped template region is required before confirmation.")
+    grouped: dict[int, list[dict]] = {}
+    seen_on_page: set[tuple[int, str, str]] = set()
+    for region in regions:
+        page_number = int(region.page_number)
+        page = pages.get(page_number)
+        if page is None or page_number < 1:
+            raise HTTPException(status_code=422, detail=f"Unknown template page number: {page_number}.")
+        question_number = region.question_number.strip()
+        part_label = region.part_label.strip()
+        if not question_number:
+            raise HTTPException(status_code=422, detail=f"Page {page_number} contains a region without a question label.")
+        if len(region.bbox) != 4:
+            raise HTTPException(status_code=422, detail=f"Region {question_number} on page {page_number} must have four coordinates.")
+        x1, y1, x2, y2 = (int(value) for value in region.bbox)
+        if x1 < 0 or y1 < 0 or x2 <= x1 or y2 <= y1:
+            raise HTTPException(status_code=422, detail=f"Region {question_number} on page {page_number} has invalid bbox coordinates.")
+        image_path = Path(page.page_image_path)
+        if image_path.exists():
+            try:
+                with Image.open(image_path) as image:
+                    width, height = image.size
+            except Exception as exc:  # noqa: BLE001 — malformed local page is a review error
+                raise HTTPException(status_code=422, detail=f"Template page {page_number} image could not be read.") from exc
+            if x2 > width or y2 > height:
+                raise HTTPException(status_code=422, detail=f"Region {question_number} on page {page_number} lies outside the page image.")
+        identity = (page_number, question_number.casefold(), part_label.casefold())
+        if identity in seen_on_page:
+            raise HTTPException(status_code=422, detail=f"Duplicate region identity {question_number}{part_label} on page {page_number}.")
+        seen_on_page.add(identity)
+        grouped.setdefault(page_number, []).append({"question_number": question_number, "part_label": part_label, "bbox": [x1, y1, x2, y2]})
+    return grouped
 
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
@@ -84,20 +131,7 @@ def update_template_map(
         page.page_number: page
         for page in db.query(TemplateMapPage).filter(TemplateMapPage.project_id == project_id).all()
     }
-    grouped: dict[int, list] = {}
-    for region in payload.regions:
-        if region.page_number not in pages:
-            raise HTTPException(status_code=400, detail=f"Unknown page number: {region.page_number}")
-        x1, y1, x2, y2 = region.bbox
-        if x2 <= x1 or y2 <= y1:
-            raise HTTPException(status_code=400, detail="Invalid bbox coordinates.")
-        grouped.setdefault(region.page_number, []).append(
-            {
-                "question_number": region.question_number.strip(),
-                "part_label": region.part_label.strip(),
-                "bbox": [x1, y1, x2, y2],
-            }
-        )
+    grouped = _validate_regions(payload.regions, pages, require_any=False)
 
     for page_number, page in pages.items():
         page.regions_json = json.dumps(grouped.get(page_number, []))
@@ -127,6 +161,17 @@ def confirm_template_map(project_id: str, db: Session = Depends(get_db)) -> Temp
     )
     if not pages:
         raise HTTPException(status_code=400, detail="No template map pages to confirm.")
+    all_regions = [
+        _RegionValidationPayload(
+            page_number=page.page_number,
+            question_number=str(region.get("question_number", "")),
+            part_label=str(region.get("part_label", "")),
+            bbox=region.get("bbox", []),
+        )
+        for page in pages
+        for region in json.loads(page.regions_json or "[]")
+    ]
+    _validate_regions(all_regions, {page.page_number: page for page in pages}, require_any=True)
 
     payload_pages = []
     for page in pages:

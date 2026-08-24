@@ -25,7 +25,7 @@ export default function RegionOverlay({ imageUrl, regions, hoveredIndex, onSelec
         const labelText = !hasValidBox ? "Invalid region" : hasQuestion ? `Q${region.question_number}${region.part_label ? ` (${region.part_label})` : ""}` : "Unmapped region";
         const colors = state === "mapped" ? { fill: "rgba(37, 99, 235, 0.13)", stroke: "#2563eb", label: "#1d4ed8" } : state === "unmapped" ? { fill: "rgba(217, 119, 6, 0.18)", stroke: "#b45309", label: "#92400e" } : { fill: "rgba(190, 24, 93, 0.18)", stroke: "#be123c", label: "#9f1239" };
         const labelWidth = Math.max(86, labelText.length * 8 + 20);
-        return <g key={`${region.question_number}-${region.part_label}-${index}`} onClick={() => onSelectRegion?.(index)} className="overlay-region" tabIndex={0} role="button" aria-label={`${labelText}, region ${index + 1}`}>
+        return <g key={`${region.question_number}-${region.part_label}-${index}`} onClick={() => onSelectRegion?.(index)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onSelectRegion?.(index); } }} className="overlay-region" tabIndex={0} role="button" aria-label={`${labelText}, region ${index + 1}`}>
           <rect x={x1} y={y1} width={width} height={height} fill={isHovered ? colors.fill.replace("0.", "0.28") : colors.fill} stroke={isHovered ? colors.label : colors.stroke} strokeWidth={isHovered ? 4 : 2} rx={4} />
           <rect x={x1 + 4} y={y1 + 4} width={labelWidth} height={24} fill={isHovered ? colors.label : colors.stroke} rx={4} />
           <text x={x1 + 12} y={y1 + 20} fill="white" fontSize={12} fontWeight={700} fontFamily="Inter, sans-serif">{labelText}</text>

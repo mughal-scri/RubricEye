@@ -21,10 +21,48 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE projects ADD COLUMN deleted_at DATETIME"))
             if "template_map_error" not in project_cols:
                 conn.execute(text("ALTER TABLE projects ADD COLUMN template_map_error TEXT"))
+            if "question_bank_raw_total" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN question_bank_raw_total INTEGER"))
+            if "question_bank_stated_total" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN question_bank_stated_total INTEGER"))
+            if "question_bank_effective_total" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN question_bank_effective_total INTEGER"))
+            if "question_bank_structure_status" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN question_bank_structure_status VARCHAR(40) NOT NULL DEFAULT 'unresolved'"))
+            if "rubric_source_mode" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN rubric_source_mode VARCHAR(16) NOT NULL DEFAULT 'uploaded'"))
+            if "rubric_studio_status" not in project_cols:
+                conn.execute(text("ALTER TABLE projects ADD COLUMN rubric_studio_status VARCHAR(24) NOT NULL DEFAULT 'not_used'"))
+
+    if "question_bank_items" in tables:
+        question_cols = {col["name"] for col in inspector.get_columns("question_bank_items")}
+        with engine.begin() as conn:
+            if "rubric_provenance" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN rubric_provenance VARCHAR(255)"))
+            if "rubric_confidence" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN rubric_confidence VARCHAR(16)"))
+            if "rubric_reviewed" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN rubric_reviewed BOOLEAN NOT NULL DEFAULT 0"))
+            if "section_label" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN section_label VARCHAR(255)"))
+            if "question_text" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN question_text TEXT"))
+
+    if "question_groups" in tables:
+        group_cols = {col["name"] for col in inspector.get_columns("question_groups")}
+        with engine.begin() as conn:
+            if "selection_units_json" not in group_cols:
+                conn.execute(text("ALTER TABLE question_groups ADD COLUMN selection_units_json TEXT NOT NULL DEFAULT '[]'"))
 
     if "answer_sheets" in tables:
         sheet_cols = {col["name"] for col in inspector.get_columns("answer_sheets")}
         with engine.begin() as conn:
             if "grading_status" not in sheet_cols:
                 conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN grading_status VARCHAR(32) NOT NULL DEFAULT 'not_graded'"))
+            if "report_path" not in sheet_cols:
+                conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN report_path VARCHAR(1024)"))
+            if "report_generated_at" not in sheet_cols:
+                conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN report_generated_at DATETIME"))
+            if "completed_at" not in sheet_cols:
+                conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN completed_at DATETIME"))
 

@@ -1,108 +1,128 @@
-import { AlertCircle, ArrowLeft, Check, FileText, FolderPlus, ShieldLock, Upload } from "lucide-react";
+import { AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronLeft, ChevronRight, FileText, FolderPlus, ShieldLock, Sparkles } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createProject } from "../api/client";
+import FilePicker from "../components/FilePicker";
+import RubricCriteriaEditor from "../components/RubricCriteriaEditor";
+import { createProject, exportRubricStudioPdf, fileUrl, previewRubricStudio, RubricStudioCriterionDraft, RubricStudioPreviewResponse } from "../api/client";
 import { errorMessage } from "../ui";
 
-type DocumentKind = "rubric" | "questionPaper" | "blankBooklet";
+type DocumentKind = "questionPaper" | "blankBooklet" | "rubric";
+type RubricMode = "upload" | "text" | "studio";
 
-const documentCopy: Record<DocumentKind, { title: string; description: string; icon: typeof FileText }> = {
-  rubric: { title: "Official marking rubric", description: "The criteria used to assess answers. It becomes locked after project creation.", icon: ShieldLock },
-  questionPaper: { title: "Question paper", description: "Provides the question structure and marks context for the assessment.", icon: FileText },
-  blankBooklet: { title: "Blank answer booklet", description: "Used to derive the candidate answer-region template for this booklet format.", icon: FileText },
+const steps = ["Question paper", "Answer booklet", "Rubric source", "Confirm"];
+const copy: Record<Exclude<DocumentKind, "rubric">, { title: string; description: string }> = {
+  questionPaper: { title: "Question paper", description: "The printed paper used to understand question numbers, sections, instructions, and marks." },
+  blankBooklet: { title: "Answer booklet / template", description: "The blank booklet whose own printed structure will be read for answer regions and page order." },
 };
 
 export default function CreateProject() {
   const navigate = useNavigate();
+  const [step, setStep] = useState(0);
   const [name, setName] = useState("");
-  const [rubric, setRubric] = useState<File | null>(null);
-  const [questionPaper, setQuestionPaper] = useState<File | null>(null);
-  const [blankBooklet, setBlankBooklet] = useState<File | null>(null);
+  const [files, setFiles] = useState<Record<DocumentKind, File | null>>({ questionPaper: null, blankBooklet: null, rubric: null });
+  const [rubricMode, setRubricMode] = useState<RubricMode>("upload");
+  const [rubricText, setRubricText] = useState("");
+  const [studioPreview, setStudioPreview] = useState<RubricStudioPreviewResponse | null>(null);
+  const [studioPdfUrl, setStudioPdfUrl] = useState<string | null>(null);
+  const [studioGenerating, setStudioGenerating] = useState(false);
+  const [studioExporting, setStudioExporting] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
-  const files: Record<DocumentKind, File | null> = { rubric, questionPaper, blankBooklet };
-  const setters: Record<DocumentKind, (file: File | null) => void> = { rubric: setRubric, questionPaper: setQuestionPaper, blankBooklet: setBlankBooklet };
+  const chooseFile = (kind: DocumentKind, file: File | null) => setFiles((current) => ({ ...current, [kind]: file }));
+  const updateCriterion = (questionNumber: string, field: "marks_possible" | "key_points", value: string | number | null) => setStudioPreview((current) => current ? { ...current, criteria: current.criteria.map((criterion) => criterion.question_number === questionNumber ? { ...criterion, [field]: value } : criterion) } : current);
+  const resizeText = (element: HTMLTextAreaElement | null) => { if (!element) return; element.style.height = "0px"; element.style.height = `${Math.max(element.scrollHeight, 180)}px`; };
+
+  const generateStudioPreview = async () => {
+    if (!files.questionPaper) { setError("Choose the question paper before generating a rubric."); return; }
+    setStudioGenerating(true); setError("");
+    try {
+      const preview = await previewRubricStudio(files.questionPaper);
+      setStudioPreview(preview);
+      setStudioPdfUrl(preview.generated_rubric_download_url ?? null);
+      if (preview.status === "manual_required") setError(preview.warning ?? "Rubric Studio could not generate a draft. Choose pasted text or upload an official rubric instead.");
+    } catch (err) { setError(errorMessage(err)); } finally { setStudioGenerating(false); }
+  };
+
+  const studioIncomplete = studioPreview?.criteria.filter((criterion) => !criterion.key_points?.trim() || criterion.marks_possible === null).length ?? 0;
+
+  const exportEditedStudioPdf = async () => {
+    if (!studioPreview?.criteria.length || studioIncomplete) { setError("Complete every generated criterion before exporting the PDF."); return; }
+    setStudioExporting(true); setError("");
+    try { const result = await exportRubricStudioPdf(name.trim() || "RubricEye Assessment", studioPreview.criteria); setStudioPdfUrl(result.download_url); } catch (err) { setError(errorMessage(err)); } finally { setStudioExporting(false); }
+  };
+
+  const goNext = async () => {
+    setError("");
+    if (step === 0 && !files.questionPaper) return setError("Choose the question paper before continuing.");
+    if (step === 1 && !files.blankBooklet) return setError("Choose the blank answer booklet or template before continuing.");
+    if (step === 2) {
+      if (rubricMode === "upload" && !files.rubric) return setError("Choose the official rubric PDF before continuing.");
+      if (rubricMode === "text" && !rubricText.trim()) return setError("Paste the rubric text before continuing.");
+      if (rubricMode === "studio") {
+        if (!studioPreview) { await generateStudioPreview(); return; }
+        if (studioPreview.status === "manual_required") return setError("Choose pasted text or upload an official rubric to continue.");
+        if (studioPreview.status !== "draft_ready" || !studioPreview.criteria.length) return setError("Rubric Studio returned an incomplete draft. Use pasted text or the official rubric upload path instead.");
+        if (studioIncomplete) return setError("Complete every generated criterion before continuing.");
+      }
+    }
+    setStep((current) => Math.min(3, current + 1));
+  };
+
+  const goBack = () => { setError(""); setStep((current) => Math.max(0, current - 1)); };
 
   const onSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    setError("");
-    if (!name.trim()) return setError("Enter a project name before continuing.");
-    if (!rubric || !questionPaper || !blankBooklet) return setError("Select all three PDF documents before creating the project.");
-
+    event.preventDefault(); setError("");
+    if (!name.trim()) return setError("Enter a project name before creating it.");
+    if (!files.questionPaper || !files.blankBooklet) return setError("Complete the question paper and answer booklet steps before creating the project.");
+    if (rubricMode === "upload" && !files.rubric) return setError("Upload the official rubric before creating the project.");
+    if (rubricMode === "text" && !rubricText.trim()) return setError("Paste the rubric text before creating the project.");
+    if (rubricMode === "studio" && (!studioPreview || studioPreview.status !== "draft_ready" || studioIncomplete)) return setError("Complete the Rubric Studio review or choose another rubric source.");
     setLoading(true);
     try {
       const formData = new FormData();
       formData.append("name", name.trim());
-      formData.append("rubric", rubric);
-      formData.append("question_paper", questionPaper);
-      formData.append("blank_booklet", blankBooklet);
+      formData.append("rubric_mode", rubricMode);
+      formData.append("question_paper", files.questionPaper);
+      formData.append("blank_booklet", files.blankBooklet);
+      if (rubricMode === "upload" && files.rubric) formData.append("rubric", files.rubric);
+      if (rubricMode === "text") formData.append("rubric_text", rubricText.trim());
+      if (rubricMode === "studio" && studioPreview) {
+        formData.append("rubric_draft_json", JSON.stringify({ criteria: studioPreview.criteria }));
+        formData.append("rubric_draft_reviewed", "true");
+      }
       const project = await createProject(formData);
       navigate(`/projects/${project.id}/template-map`);
-    } catch (err) {
-      setError(errorMessage(err));
-    } finally {
-      setLoading(false);
-    }
+    } catch (err) { setError(errorMessage(err)); } finally { setLoading(false); }
   };
 
-  if (loading) {
-    return (
-      <div className="page-narrow">
-        <div className="processing-card" role="status">
-          <div className="spinner" />
-          <h2>Creating project and deriving template…</h2>
-          <p>Your source files are being prepared. Keep this window open until the template review is ready.</p>
+  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><div className="spinner" /><h2>Preparing your assessment…</h2><p>RubricEye is saving the reviewed materials and preparing the adaptive booklet map. Keep this window open until the review step is ready.</p></div></div>;
+
+  return <div className="page-narrow staged-creation">
+    <div className="breadcrumb"><Link to="/"><ArrowLeft size={14} /> Back to projects</Link></div>
+    <div className="page-header"><div className="page-title-group"><div className="eyebrow">New assessment</div><h1>Create evaluation project</h1><p>Prepare the assessment in four steps. Rubric text and Studio drafts stay provisional until you review the full source.</p></div></div>
+    <nav className="wizard-steps" aria-label="Project creation steps">{steps.map((label, index) => <div key={label} className={`wizard-step ${index === step ? "is-current" : ""} ${index < step ? "is-done" : ""}`}><span>{index < step ? <Check size={14} /> : index + 1}</span><strong>{label}</strong></div>)}</nav>
+    {error && <div className="alert alert-error" role="alert"><AlertCircle size={18} /><span>{error}</span></div>}
+
+    <form onSubmit={onSubmit} className="card form-card staged-card">
+      {step < 3 && <section className="wizard-panel"><div className="section-heading"><div><div className="eyebrow">Step {step + 1} of 4</div><h2>{copy[step === 0 ? "questionPaper" : "blankBooklet"].title}</h2><p>{copy[step === 0 ? "questionPaper" : "blankBooklet"].description}</p></div></div>
+        <FilePicker id={`file-${step === 0 ? "question-paper" : "blank-booklet"}`} file={files[step === 0 ? "questionPaper" : "blankBooklet"]} emptyLabel="Choose a PDF" emptyHint="PDF files only" readyHint="Ready for the next step" onChange={(file) => chooseFile(step === 0 ? "questionPaper" : "blankBooklet", file)} />
+        {step === 1 && <div className="info-panel"><FileText size={17} /><div><strong>What RubricEye reads</strong><p>The booklet’s printed labels and answer structure. Technical coordinates stay hidden during ordinary setup; uncertain structure will be surfaced for review.</p></div></div>}
+      </section>}
+
+      {step === 2 && <section className="wizard-panel"><div className="section-heading"><div><div className="eyebrow">Step 3 of 4</div><h2>Choose a rubric source</h2><p>Use the source you already have. Rubric Studio is optional and always produces an examiner-editable draft.</p></div></div>
+        <div className="rubric-choice" role="tablist" aria-label="Rubric source options">
+          <button type="button" role="tab" aria-selected={rubricMode === "upload"} className={`choice-card ${rubricMode === "upload" ? "is-selected" : ""}`} onClick={() => { setRubricMode("upload"); setError(""); }}><ShieldLock size={18} /><span><strong>Upload PDF</strong><small>Use an official marking scheme.</small></span></button>
+          <button type="button" role="tab" aria-selected={rubricMode === "text"} className={`choice-card ${rubricMode === "text" ? "is-selected" : ""}`} onClick={() => { setRubricMode("text"); setError(""); }}><FileText size={18} /><span><strong>Paste text</strong><small>Use a rubric copied from your own notes or document.</small></span></button>
+          <button type="button" role="tab" aria-selected={rubricMode === "studio"} className={`choice-card ${rubricMode === "studio" ? "is-selected" : ""}`} onClick={() => { setRubricMode("studio"); setError(""); }}><Sparkles size={18} /><span><strong>Rubric Studio</strong><small>Draft criteria from the question paper, then edit them in order.</small></span></button>
         </div>
-      </div>
-    );
-  }
+        {rubricMode === "upload" && <FilePicker id="file-rubric" file={files.rubric} emptyLabel="Choose an official rubric PDF" emptyHint="PDF files only" readyHint="Official source selected" onChange={(file) => chooseFile("rubric", file)} />}
+        {rubricMode === "text" && <div className="form-group rubric-text-source"><label className="form-label" htmlFor="rubric-text">Paste rubric text</label><textarea id="rubric-text" className="form-input auto-grow-textarea" rows={10} ref={(element) => resizeText(element)} onInput={(event) => resizeText(event.currentTarget)} value={rubricText} onChange={(event) => setRubricText(event.target.value)} placeholder="Paste the marking criteria here. Keep question labels and marks as they appear in the question paper." /><small className="field-help">The text is saved locally and rendered into the project’s structured rubric PDF.</small></div>}
+        {rubricMode === "studio" && <div className="studio-review-panel"><div className="info-panel"><Sparkles size={17} /><div><strong>One explicit draft call</strong><p>Rubric Studio reads the selected question paper, keeps its question labels, and returns provisional criteria for you to edit. It will not create an autonomous final rubric.</p></div></div>{studioPreview?.warning && <div className="alert alert-warning" role="status"><AlertCircle size={17} /><span>{studioPreview.warning}</span></div>}{studioPreview?.criteria.length ? <><div className="structure-summary"><div><span className="eyebrow">Draft criteria</span><strong>{studioPreview.criteria.length} criteria in paper order</strong><p>{studioIncomplete ? `${studioIncomplete} still need marks or criteria text.` : "All criteria have editable marks and text."}</p></div><div className="structure-metrics"><span><b>{studioPreview.criteria.length - studioIncomplete}</b> complete</span><span><b>{studioIncomplete}</b> open</span>{studioPdfUrl && <a className="btn btn-secondary btn-sm" href={fileUrl(studioPdfUrl)} download="rubric.pdf"><FileText size={14} /> Download PDF</a>}<button type="button" className="btn btn-secondary btn-sm" onClick={() => void exportEditedStudioPdf()} disabled={studioExporting || studioIncomplete > 0}><FileText size={14} /> {studioExporting ? "Preparing PDF…" : "Export edited PDF"}</button></div></div><RubricCriteriaEditor criteria={studioPreview.criteria} onChange={updateCriterion} /></> : <div className="empty-state"><Sparkles size={26} /><h3>Ready to draft the rubric</h3><p>Generate one provisional draft from the question paper, or choose pasted text / PDF above.</p></div>}<button type="button" className="btn btn-secondary" onClick={generateStudioPreview} disabled={studioGenerating}>{studioGenerating ? "Generating draft…" : studioPreview ? "Regenerate draft" : "Generate rubric draft"}</button></div>}
+      </section>}
 
-  return (
-    <div className="page-narrow">
-      <div className="breadcrumb"><Link to="/"><ArrowLeft size={14} /> Back to projects</Link></div>
-      <div className="page-header">
-        <div className="page-title-group">
-          <div className="eyebrow">New assessment</div>
-          <h1>Create evaluation project</h1>
-          <p>Upload the three source documents used to prepare this assessment.</p>
-        </div>
-      </div>
-
-      {error && <div className="alert alert-error" role="alert"><AlertCircle size={18} /><span><strong>Project could not be created.</strong> {error}</span></div>}
-
-      <form onSubmit={onSubmit} className="card form-card">
-        <div className="form-group">
-          <label className="form-label" htmlFor="project-name">Project name</label>
-          <input id="project-name" className="form-input" placeholder="e.g. Physics Midterm Examination 2026" value={name} onChange={(event) => setName(event.target.value)} required />
-        </div>
-
-        <div className="section-heading"><div><h2>Source documents</h2><p>Each document is used for a different part of the preparation process.</p></div></div>
-        <div className="file-stack">
-          {(Object.keys(documentCopy) as DocumentKind[]).map((kind, index) => {
-            const copy = documentCopy[kind];
-            const Icon = copy.icon;
-            const file = files[kind];
-            return (
-              <div className={`file-dropzone ${file ? "has-file" : ""}`} key={kind}>
-                <label className="file-choice" htmlFor={`file-${kind}`}>
-                  <span className={`file-icon ${file ? "is-ready" : ""}`}>{file ? <Check size={20} /> : <Icon size={20} />}</span>
-                  <span className="file-copy"><strong>{index + 1}. {copy.title}</strong><small>{file ? `${file.name} · ${(file.size / 1024).toFixed(1)} KB` : copy.description}</small></span>
-                  <span className="btn btn-secondary btn-sm">{file ? "Replace file" : "Choose PDF"}</span>
-                  <input id={`file-${kind}`} type="file" accept="application/pdf,.pdf" onChange={(event) => setters[kind](event.target.files?.[0] ?? null)} />
-                </label>
-              </div>
-            );
-          })}
-        </div>
-
-        <div className="info-panel">
-          <strong>What happens next</strong>
-          <p>The project will be created, then you will review the candidate template map before uploading answer sheets. The rubric and approved assessment criteria are intended to remain fixed for consistent grading.</p>
-        </div>
-
-        <div className="form-actions"><Link to="/" className="btn btn-secondary">Cancel</Link><button type="submit" className="btn btn-primary"><FolderPlus size={17} /> Create project and derive template</button></div>
-      </form>
-    </div>
-  );
+      {step === 3 && <section className="wizard-panel"><div className="eyebrow">Step 4 of 4</div><h2>Confirm project creation</h2><p>Review the source files once. The project will be created only after this final confirmation.</p><div className="review-file-list"><div className="review-file"><CheckCircle2 size={18} /><div><strong>Question paper</strong><span>{files.questionPaper?.name ?? "Missing PDF"}</span></div></div><div className="review-file"><CheckCircle2 size={18} /><div><strong>Answer booklet / template</strong><span>{files.blankBooklet?.name ?? "Missing PDF"}</span></div></div><div className="review-file"><CheckCircle2 size={18} /><div><strong>{rubricMode === "studio" ? "Rubric Studio draft" : rubricMode === "text" ? "Pasted rubric text" : "Official rubric PDF"}</strong><span>{rubricMode === "studio" ? `${studioPreview?.criteria.length ?? 0} edited criteria` : rubricMode === "text" ? `${rubricText.trim().length} characters` : files.rubric?.name ?? "Missing PDF"}</span></div></div></div><div className="form-group"><label className="form-label" htmlFor="project-name">Project name</label><input id="project-name" className="form-input" value={name} onChange={(event) => setName(event.target.value)} placeholder="e.g. Physics Midterm Examination 2026" required /></div><div className="info-panel"><CheckCircle2 size={17} /><div><strong>What happens next</strong><p>After creation, you’ll review what RubricEye understood from the uploaded booklet, then confirm the Question Bank before grading.</p></div></div></section>}
+      <div className="form-actions"><button type="button" className="btn btn-secondary" onClick={goBack} disabled={step === 0}><ChevronLeft size={16} /> Back</button>{step < 3 ? <button type="button" className="btn btn-primary" onClick={() => void goNext()} disabled={studioGenerating}>{studioGenerating ? "Generating…" : <>Continue <ChevronRight size={16} /></>}</button> : <button type="submit" className="btn btn-primary"><FolderPlus size={17} /> Create project</button>}</div>
+    </form>
+  </div>;
 }

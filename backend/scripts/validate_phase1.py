@@ -15,7 +15,7 @@ if Path(os.environ["RUBRICEYE_DATA_DIR"]).exists():
 
 from app.main import app  # noqa: E402
 
-FIXTURES = Path(__file__).resolve().parent / "test_fixtures"
+FIXTURES = Path(os.environ.get("RUBRICEYE_PHASE1_FIXTURES_DIR", Path(__file__).resolve().parent / "test_fixtures_roman"))
 
 
 def main() -> int:

@@ -65,6 +65,13 @@ class ProjectDetail(ProjectSummary):
     question_paper_file_path: str
     blank_booklet_file_path: str
     question_bank_marks_warning: str | None = None
+    question_bank_raw_total: int | None = None
+    question_bank_stated_total: int | None = None
+    question_bank_effective_total: int | None = None
+    question_bank_structure_status: str = "unresolved"
+    rubric_source_mode: str = "uploaded"
+    rubric_studio_status: str = "not_used"
+    rubric_download_url: str | None = None
     template_map_error: str | None = None
 
 
@@ -73,6 +80,10 @@ class RegionRef(BaseModel):
     bbox: list[int]
     nominal_bbox: list[int] | None = None
     overflow_detected: bool = False
+    alignment_method: str = "feature"
+    alignment_confidence: str = "high"
+    alignment_uncertain: bool = False
+    page_correspondence_uncertain: bool = False
 
 
 class AnswerSheetSummary(BaseModel):
@@ -82,6 +93,9 @@ class AnswerSheetSummary(BaseModel):
     uploaded_at: datetime
     page_count: int
     grading_status: str = "not_graded"
+    report_ready: bool = False
+    report_download_url: str | None = None
+    completed_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 
@@ -102,7 +116,12 @@ class QuestionBankItemResponse(BaseModel):
     question_number: str
     marks_possible: int | None
     key_points: str | None
+    section_label: str | None = None
+    question_text: str | None = None
     question_image_path: str | None
+    rubric_provenance: str | None = None
+    rubric_confidence: str | None = None
+    rubric_reviewed: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -118,12 +137,67 @@ class QuestionBankListResponse(BaseModel):
     items: list[QuestionBankItemResponse]
 
 
+class RubricStudioCriterionUpdate(BaseModel):
+    marks_possible: int | None = None
+    key_points: str | None = None
+    section_label: str | None = None
+    question_text: str | None = None
+    rubric_reviewed: bool | None = None
+
+
+class RubricStudioCriterionDraft(BaseModel):
+    question_number: str
+    marks_possible: int | None
+    key_points: str | None
+    section_label: str | None = None
+    question_text: str | None = None
+    rubric_provenance: str | None = None
+    rubric_confidence: str | None = None
+    rubric_reviewed: bool = False
+
+
+class RubricStudioCriterionResponse(RubricStudioCriterionDraft):
+    id: str
+
+
+class RubricStudioPreviewResponse(BaseModel):
+    status: str
+    criteria: list[RubricStudioCriterionDraft] = []
+    warning: str | None = None
+    manual_upload_available: bool = True
+    generated_rubric_download_url: str | None = None
+
+
+class RubricStudioResponse(BaseModel):
+    project_id: str
+    status: str
+    source_mode: str
+    criteria: list[RubricStudioCriterionResponse] = []
+    warning: str | None = None
+    manual_upload_available: bool = True
+    all_criteria_reviewed: bool = False
+    generated_rubric_download_url: str | None = None
+
+
+class RubricStudioExportRequest(BaseModel):
+    project_name: str = "RubricEye Assessment"
+    criteria: list[RubricStudioCriterionDraft] = Field(default_factory=list)
+
+
+class RubricStudioExportResponse(BaseModel):
+    download_url: str
+    filename: str = "rubric.pdf"
+
+
 class QuestionBankConfirmResponse(BaseModel):
     project_id: str
     confirmed: bool
     total_marks_extracted: int
     total_marks_on_paper: int | None
     marks_mismatch_warning: str | None
+    effective_total: int | None = None
+    structure_status: str = "unresolved"
+    structure_warning: str | None = None
 
 
 # ============================================================
@@ -136,6 +210,7 @@ class QuestionGroupCreate(BaseModel):
     selection_type: str  # "compulsory" | "choose_n_of_m"
     question_numbers: list[str] = Field(min_length=1)
     n_required: int | None = None
+    selection_units: list[list[str]] | None = None
 
 
 class QuestionGroupResponse(BaseModel):
@@ -145,6 +220,7 @@ class QuestionGroupResponse(BaseModel):
     selection_type: str
     question_numbers: list[str]
     n_required: int | None
+    selection_units: list[list[str]] = []
 
 
 # ============================================================
@@ -212,6 +288,17 @@ class AnswerSheetResultsResponse(BaseModel):
     grading_status: str
     results: list[GradingResultResponse]
     summary: AnswerSheetResultsSummary
+    report_ready: bool = False
+    report_download_url: str | None = None
+    completed_at: datetime | None = None
+
+
+class ReportResponse(BaseModel):
+    answer_sheet_id: str
+    report_ready: bool
+    report_download_url: str | None = None
+    completed_at: datetime | None = None
+    blockers: list[str] = []
 
 
 class ExaminerConfirmRequest(BaseModel):

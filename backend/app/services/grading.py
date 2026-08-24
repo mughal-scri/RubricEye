@@ -113,9 +113,13 @@ def encode_image(path: str, max_width: int | None = None) -> str:
 def build_batches(units: list[QuestionUnit], question_groups: list[dict]) -> list[list[QuestionUnit]]:
     groups_by_id = {g["id"]: g for g in question_groups}
     compulsory_batches: dict[str, list[QuestionUnit]] = {}
+    compound_batches: dict[str, list[QuestionUnit]] = {}
     batches: list[list[QuestionUnit]] = []
 
     for unit in units:
+        if unit.compound_batch_id:
+            compound_batches.setdefault(unit.compound_batch_id, []).append(unit)
+            continue
         group = groups_by_id.get(unit.group_id) if unit.group_id else None
         if group and group["selection_type"] == "compulsory":
             compulsory_batches.setdefault(unit.group_id, []).append(unit)
@@ -123,6 +127,9 @@ def build_batches(units: list[QuestionUnit], question_groups: list[dict]) -> lis
             batches.append([unit])
 
     for members in compulsory_batches.values():
+        members.sort(key=lambda u: split_base_and_part(u.question_number))
+        batches.append(members)
+    for members in compound_batches.values():
         members.sort(key=lambda u: split_base_and_part(u.question_number))
         batches.append(members)
 
@@ -166,16 +173,60 @@ def _sentinel_error(units: list[QuestionUnit], message: str) -> list[GradedUnitR
     ]
 
 
-def _match_part_score(unit: QuestionUnit, part_scores: list[dict]) -> dict | None:
+def _match_part_scores(unit: QuestionUnit, part_scores: list[dict]) -> list[dict]:
     _, part = split_base_and_part(unit.question_number)
-    if len(part_scores) == 1:
-        return part_scores[0]
     if not part:
-        return part_scores[0] if part_scores else None
-    for ps in part_scores:
-        if str(ps.get("part", "")).strip().lower().strip("().") == part:
-            return ps
-    return None
+        return list(part_scores)
+    matched = [
+        score
+        for score in part_scores
+        if str(score.get("part", "")).strip().lower().strip("().") == part
+    ]
+    if not matched and len(part_scores) == 1 and not str(part_scores[0].get("part", "")).strip():
+        return [part_scores[0]]
+    return matched
+
+
+def _invalid_score_result(unit: QuestionUnit, message: str, flags: list[str]) -> GradedUnitResult:
+    return GradedUnitResult(
+        question_number=unit.question_number,
+        ai_score=None,
+        ai_total_possible=None,
+        ai_rationale=None,
+        part_scores=[],
+        transcription_summary=None,
+        flags=flags + [f"grading_error: {message}"],
+        confidence="low",
+        grading_status="failed",
+        error_message=message,
+    )
+
+
+def _validated_scores(scores: list[dict]) -> tuple[list[dict], str | None]:
+    if not scores:
+        return [], "AI response contains no part scores"
+    normalized: list[dict] = []
+    for score in scores:
+        if not isinstance(score, dict):
+            return [], "AI response contains a malformed part score"
+        awarded = score.get("marks_awarded")
+        possible = score.get("marks_possible")
+        if isinstance(awarded, bool) or not isinstance(awarded, int):
+            return [], "AI marks_awarded must be an integer"
+        if isinstance(possible, bool) or not isinstance(possible, int):
+            return [], "AI marks_possible must be an integer"
+        if possible < 0 or awarded < 0 or awarded > possible:
+            return [], "AI part score is outside its reported marks range"
+        normalized.append(
+            {
+                **score,
+                "part": str(score.get("part", "")).strip().lower().strip("()."),
+                "marks_awarded": awarded,
+                "marks_possible": possible,
+                "rationale": str(score.get("rationale", "")),
+            }
+        )
+    return normalized, None
 
 
 def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[GradedUnitResult]:
@@ -185,7 +236,8 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
 
     image_paths: list[str] = []
     for unit in batch:
-        image_paths.extend(unit.image_paths)
+        image_paths.extend(unit.compound_image_paths or unit.image_paths)
+    image_paths = list(dict.fromkeys(image_paths))
     if not image_paths:
         return _sentinel_error(batch, "no region images found for this question")
 
@@ -208,9 +260,34 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
     except Exception as exc:  # noqa: BLE001 — API/parse failures must never crash the request
         return _sentinel_error(batch, str(exc))
 
-    part_scores = parsed.get("part_scores", [])
+    raw_part_scores = parsed.get("part_scores", [])
+    part_scores, score_error = _validated_scores(raw_part_scores if isinstance(raw_part_scores, list) else [])
     flags = parsed.get("flags", []) or []
+    if not isinstance(flags, list):
+        flags = [str(flags)]
     confidence = parsed.get("confidence", "low")
+
+    if score_error:
+        return [_invalid_score_result(unit, score_error, flags) for unit in batch]
+
+    authoritative_maxima = [qb_items_by_number[unit.question_number].marks_possible for unit in batch]
+    if any(maximum is None for maximum in authoritative_maxima):
+        return [_invalid_score_result(unit, "authoritative Question Bank maximum is unavailable", flags) for unit in batch]
+    authoritative_total = sum(int(maximum) for maximum in authoritative_maxima)
+    reported_possible = parsed.get("total_possible")
+    reported_awarded = parsed.get("total_awarded")
+    if (
+        isinstance(reported_possible, bool)
+        or not isinstance(reported_possible, int)
+        or reported_possible != authoritative_total
+    ):
+        return [_invalid_score_result(unit, f"AI total_possible must equal authoritative maximum {authoritative_total}", flags) for unit in batch]
+    if isinstance(reported_awarded, bool) or not isinstance(reported_awarded, int):
+        return [_invalid_score_result(unit, "AI total_awarded must be an integer", flags) for unit in batch]
+    if reported_awarded != sum(score["marks_awarded"] for score in part_scores):
+        return [_invalid_score_result(unit, "AI total_awarded does not equal the supplied part scores", flags) for unit in batch]
+    if sum(score["marks_possible"] for score in part_scores) != authoritative_total:
+        return [_invalid_score_result(unit, f"AI part maxima must sum to authoritative maximum {authoritative_total}", flags) for unit in batch]
 
     # TechDoc §7 known-bug fix (HANDOVER.md): confidence must not stay "high" when
     # flags are present. Downgrade at the point of ingestion, not left to the UI.
@@ -221,31 +298,30 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
     results: list[GradedUnitResult] = []
 
     for unit in batch:
-        matched = _match_part_score(unit, part_scores)
-        if matched is None:
+        matched_scores = _match_part_scores(unit, part_scores)
+        if not matched_scores:
+            results.append(_invalid_score_result(unit, "unmatched part in batched response", flags))
+            continue
+
+        authoritative_max = int(qb_items_by_number[unit.question_number].marks_possible)
+        matched_possible = sum(score["marks_possible"] for score in matched_scores)
+        matched_awarded = sum(score["marks_awarded"] for score in matched_scores)
+        if matched_possible != authoritative_max:
             results.append(
-                GradedUnitResult(
-                    question_number=unit.question_number,
-                    ai_score=None,
-                    ai_total_possible=None,
-                    ai_rationale=None,
-                    part_scores=[],
-                    transcription_summary=transcription_summary,
-                    flags=flags + ["no matching part in AI response for this question"],
-                    confidence="low",
-                    grading_status="failed",
-                    error_message="unmatched part in batched response",
+                _invalid_score_result(
+                    unit,
+                    f"AI maximum for {unit.question_number} must equal authoritative maximum {authoritative_max}",
+                    flags,
                 )
             )
             continue
-
         results.append(
             GradedUnitResult(
                 question_number=unit.question_number,
-                ai_score=matched.get("marks_awarded"),
-                ai_total_possible=matched.get("marks_possible"),
-                ai_rationale=matched.get("rationale"),
-                part_scores=[matched],
+                ai_score=matched_awarded,
+                ai_total_possible=matched_possible,
+                ai_rationale=" ".join(score["rationale"] for score in matched_scores if score["rationale"]) or None,
+                part_scores=matched_scores,
                 transcription_summary=transcription_summary,
                 flags=list(flags),
                 confidence=confidence,

@@ -15,8 +15,15 @@ class Settings(BaseSettings):
 
     # --- Phase 2 additions ---
     grading_model: str = "qwen-vl-max"
+    # Studio reads graphical/scanned question papers, so it uses a separately
+    # configurable multimodal model rather than inheriting the grading model.
+    studio_model: str = "qwen3.7-plus"
     dashscope_base_url: str = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"
     image_max_width: int = 1200
+    studio_max_text_chars: int = 40000
+    studio_max_pages: int = 12
+    max_pdf_bytes: int = 15 * 1024 * 1024
+    max_pdf_pages: int = 100
     ink_density_blank_threshold: float = 0.02
     ink_density_ambiguous_threshold: float = 0.04
 

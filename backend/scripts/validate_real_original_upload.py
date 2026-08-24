@@ -6,6 +6,8 @@ from __future__ import annotations
 import os
 import shutil
 import tempfile
+
+import fitz
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -39,7 +41,42 @@ def main() -> int:
                 assert detail["page_count"] == 10
                 assert all(ref["page_index"] >= 1 for refs in detail["question_region_map"].values() for ref in refs)
                 print(answer_book.name, "accepted with identity page excluded;", len(keys), "semantic regions mapped")
-        print("Original-upload privacy and segmentation regression passed: no model calls used.")
+
+            mismatch_path = ROOT / "missing-interior-page.pdf"
+            with fitz.open(ANSWER_BOOKS[0]) as mismatch_document:
+                mismatch_document.delete_page(5)
+                mismatch_document.save(mismatch_path)
+            with mismatch_path.open("rb") as handle:
+                mismatch_response = client.post(
+                    f"/projects/{project_id}/answer-sheets",
+                    data={"roll_number": "missing-interior-page"},
+                    files={"pdf": (mismatch_path.name, handle, "application/pdf")},
+                )
+            assert mismatch_response.status_code == 409, mismatch_response.text
+            mismatch_detail = mismatch_response.json()["detail"]
+            assert "9 pages" in mismatch_detail and "10" in mismatch_detail, mismatch_detail
+            sheets = client.get(f"/projects/{project_id}/answer-sheets").json()
+            assert all(sheet["roll_number"] != "missing-interior-page" for sheet in sheets), sheets
+            print("missing-page parity guard rejected 9-page booklet against confirmed 10-page template")
+
+            reordered_path = ROOT / "reordered-interior-pages.pdf"
+            with fitz.open(ANSWER_BOOKS[0]) as reordered_document:
+                page_order = list(range(reordered_document.page_count))
+                page_order[4], page_order[5] = page_order[5], page_order[4]
+                reordered_document.select(page_order)
+                reordered_document.save(reordered_path)
+            with reordered_path.open("rb") as handle:
+                reordered_response = client.post(
+                    f"/projects/{project_id}/answer-sheets",
+                    data={"roll_number": "reordered-interior-pages"},
+                    files={"pdf": (reordered_path.name, handle, "application/pdf")},
+                )
+            assert reordered_response.status_code == 409, reordered_response.text
+            assert "does not match the confirmed template" in reordered_response.json()["detail"], reordered_response.text
+            sheets = client.get(f"/projects/{project_id}/answer-sheets").json()
+            assert all(sheet["roll_number"] != "reordered-interior-pages" for sheet in sheets), sheets
+            print("same-count interior reorder rejected by local page-label correspondence check")
+        print("Original-upload privacy, segmentation, and page-parity regression passed: no model calls used.")
         return 0
     finally:
         shutil.rmtree(ROOT, ignore_errors=True)

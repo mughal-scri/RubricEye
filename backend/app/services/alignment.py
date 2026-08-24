@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import dataclass
 from pathlib import Path
 
 import cv2
@@ -129,10 +130,17 @@ def _feature_homography(reference_path: str, scan_image: np.ndarray, ref_w: int,
     return matrix
 
 
-def compute_alignment_matrix(scan_image_path: str, alignment_reference: dict, page_number: int) -> np.ndarray | None:
+@dataclass
+class AlignmentResult:
+    matrix: np.ndarray | None
+    method: str
+    confidence: str
+
+
+def compute_alignment_result(scan_image_path: str, alignment_reference: dict, page_number: int) -> AlignmentResult:
     image = cv2.imread(scan_image_path)
     if image is None:
-        return None
+        return AlignmentResult(None, "failed", "none")
     scan_h, scan_v = _detect_lines(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY))
     scan_h = _cluster_positions(scan_h)
     scan_v = _cluster_positions(scan_v)
@@ -144,18 +152,23 @@ def compute_alignment_matrix(scan_image_path: str, alignment_reference: dict, pa
     if reference_path and Path(reference_path).exists():
         feature_matrix = _feature_homography(reference_path, image, ref_w, ref_h)
         if _valid_homography(feature_matrix, ref_w, ref_h, image.shape[1], image.shape[0]):
-            return feature_matrix
+            return AlignmentResult(feature_matrix, "feature", "high")
 
     src_pts, dst_pts = _collect_grid_points(alignment_reference, page_number, scan_h, scan_v)
     if src_pts.size >= 8 and dst_pts.size >= 8:
         line_matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
         if _valid_homography(line_matrix, ref_w, ref_h, image.shape[1], image.shape[0]):
-            return line_matrix
+            return AlignmentResult(line_matrix, "grid", "medium")
 
     # Safe fallback for the common case where the same page is only resized.
     scale_x = image.shape[1] / ref_w if ref_w else 1.0
     scale_y = image.shape[0] / ref_h if ref_h else 1.0
-    return np.array([[scale_x, 0, 0], [0, scale_y, 0], [0, 0, 1]], dtype=np.float64)
+    return AlignmentResult(np.array([[scale_x, 0, 0], [0, scale_y, 0], [0, 0, 1]], dtype=np.float64), "scale_only", "low")
+
+
+def compute_alignment_matrix(scan_image_path: str, alignment_reference: dict, page_number: int) -> np.ndarray | None:
+    """Backward-compatible matrix-only helper for callers outside segmentation."""
+    return compute_alignment_result(scan_image_path, alignment_reference, page_number).matrix
 
 
 def transform_bbox(bbox: list[int], matrix: np.ndarray) -> list[int]:

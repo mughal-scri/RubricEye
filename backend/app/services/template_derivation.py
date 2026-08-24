@@ -273,6 +273,7 @@ def derive_template_map(page_image_paths: list[str], source_pdf_path: str | None
     confidence = "low" if total_regions < 2 or flattened_booklet else "high"
     used_vision_fallback = False
     if confidence == "low":
+        used_vision_fallback = True
         vision_result = extract_regions_with_vision(page_image_paths)
         if vision_result.pages:
             for page_number, fallback_regions in vision_result.pages.items():
@@ -284,7 +285,6 @@ def derive_template_map(page_image_paths: list[str], source_pdf_path: str | None
                     alignment_pages[page_number] = reference
             total_regions = sum(len(regions) for regions in pages.values())
             confidence = vision_result.confidence if total_regions else "low"
-            used_vision_fallback = True
 
     return DerivationResult(
         pages=pages,

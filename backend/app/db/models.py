@@ -47,6 +47,12 @@ class Project(Base):
     # Cached warning from Edge Case H (marks cross-check against paper's stated total),
     # populated when question bank is confirmed. Null if no mismatch or no total was detected.
     question_bank_marks_warning: Mapped[str | None] = mapped_column(Text, nullable=True)
+    question_bank_raw_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_bank_stated_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_bank_effective_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_bank_structure_status: Mapped[str] = mapped_column(String(40), default="unresolved", nullable=False)
+    rubric_source_mode: Mapped[str] = mapped_column(String(16), default="uploaded", nullable=False)
+    rubric_studio_status: Mapped[str] = mapped_column(String(24), default="not_used", nullable=False)
 
     template_map_pages: Mapped[list["TemplateMapPage"]] = relationship(
         back_populates="project", cascade="all, delete-orphan"
@@ -91,6 +97,9 @@ class AnswerSheet(Base):
     # already "complete" without touching per-question rows at all.
     # One of: not_graded | in_progress | review_required | complete | failed
     grading_status: Mapped[str] = mapped_column(String(32), default="not_graded", nullable=False)
+    report_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    report_generated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="answer_sheets")
     grading_results: Mapped[list["GradingResult"]] = relationship(
@@ -106,7 +115,12 @@ class QuestionBankItem(Base):
     question_number: Mapped[str] = mapped_column(String(64), nullable=False)
     marks_possible: Mapped[int | None] = mapped_column(Integer, nullable=True)
     key_points: Mapped[str | None] = mapped_column(Text, nullable=True)
+    section_label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    question_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     question_image_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    rubric_provenance: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    rubric_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    rubric_reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     project: Mapped["Project"] = relationship(back_populates="question_bank_items")
 
@@ -127,6 +141,7 @@ class QuestionGroup(Base):
     group_name: Mapped[str] = mapped_column(String(255), nullable=False)
     selection_type: Mapped[str] = mapped_column(String(32), nullable=False)  # compulsory | choose_n_of_m
     question_numbers_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
+    selection_units_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     n_required: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     project: Mapped["Project"] = relationship(back_populates="question_groups")

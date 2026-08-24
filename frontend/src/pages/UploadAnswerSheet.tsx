@@ -1,7 +1,8 @@
-import { AlertCircle, ArrowLeft, Check, FileText, ShieldAlert, Upload } from "lucide-react";
+import { AlertCircle, ArrowLeft, ShieldAlert, Upload } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { uploadAnswerSheet } from "../api/client";
+import FilePicker from "../components/FilePicker";
 import { errorMessage } from "../ui";
 
 export default function UploadAnswerSheet() {
@@ -32,7 +33,7 @@ export default function UploadAnswerSheet() {
     {error && <div className="alert alert-error" role="alert"><AlertCircle size={18} /><span><strong>Answer sheet could not be prepared.</strong> {error}</span></div>}
     <form onSubmit={onSubmit} className="card form-card">
       <div className="form-group"><label className="form-label" htmlFor="roll-number">Roll number</label><input id="roll-number" className="form-input" placeholder="e.g. 109283" value={rollNumber} onChange={(event) => setRollNumber(event.target.value)} required /><small className="field-help">Use the board’s anonymized roll number. Do not enter a candidate name.</small></div>
-      <div className="form-group"><label className="form-label" htmlFor="answer-pdf">Scanned answer-sheet PDF</label><div className={`file-dropzone ${pdf ? "has-file" : ""}`}><label className="file-choice" htmlFor="answer-pdf"><span className={`file-icon ${pdf ? "is-ready" : ""}`}>{pdf ? <Check size={20} /> : <FileText size={20} />}</span><span className="file-copy"><strong>{pdf ? pdf.name : "Choose the scanned answer booklet"}</strong><small>{pdf ? `${(pdf.size / 1024).toFixed(1)} KB · PDF selected` : "PDF only · page order will be preserved"}</small></span><span className="btn btn-secondary btn-sm">{pdf ? "Replace file" : "Choose PDF"}</span><input id="answer-pdf" type="file" accept="application/pdf,.pdf" onChange={(event) => setPdf(event.target.files?.[0] ?? null)} /></label></div></div>
+      <div className="form-group"><label className="form-label" htmlFor="answer-pdf">Scanned answer-sheet PDF</label><FilePicker id="answer-pdf" file={pdf} emptyLabel="Choose the scanned answer booklet" emptyHint="PDF only · page order will be preserved" readyHint="PDF selected" onChange={setPdf} /></div>
       <div className="info-panel"><strong>Preparation steps</strong><p>Uploaded → pages rendered → page count checked → regions prepared. Grading starts separately after preparation.</p></div>
       <div className="form-actions"><Link to={`/projects/${projectId}`} className="btn btn-secondary">Cancel</Link><button type="submit" className="btn btn-primary"><Upload size={17} /> Upload and prepare booklet</button></div>
     </form>

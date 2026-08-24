@@ -21,12 +21,12 @@ from dataclasses import dataclass, field
 
 import fitz  # PyMuPDF
 
-from app.services.question_grouping import roman_to_int
+from app.services.question_grouping import canonical_question_label, roman_to_int
 
 # Matches top-level question headers: "Q.1", "Q1", "Question 2", or a bare "3." at
 # the start of a line.
 _TOP_HEADER = re.compile(
-    r"(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)(\d+)\b|(?:^|\n)\s*(\d+)\s*[).]\s",
+    r"(?:^|\n)\s*(?:Q(?:uestion)?\.?\s*)(\d+)([a-z]|(?:i{1,3}|iv|v|vi{0,3}|ix|x))?\b|(?:^|\n)\s*(\d+)\s*[).]\s",
     re.IGNORECASE,
 )
 
@@ -102,7 +102,7 @@ def _split_question_blocks(full_text: str) -> list[tuple[str, str]]:
     matches = list(_TOP_HEADER.finditer(full_text))
     blocks: list[tuple[str, str]] = []
     for idx, match in enumerate(matches):
-        qnum = match.group(1) or match.group(2)
+        qnum = canonical_question_label(f"{match.group(1)}{match.group(2) or ''}" if match.group(1) else match.group(3))
         start = match.end()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(full_text)
         blocks.append((qnum, full_text[start:end]))
@@ -127,7 +127,7 @@ def _extract_parts(question_number: str, block_text: str) -> list[QuestionBankIt
         marks = _nearest_marks(part_text[:120])
         items.append(
             QuestionBankItemData(
-                question_number=f"{question_number}{part}",
+                question_number=canonical_question_label(f"{question_number}{part}"),
                 marks_possible=marks,
                 key_points=part_text.strip()[:2000],
             )

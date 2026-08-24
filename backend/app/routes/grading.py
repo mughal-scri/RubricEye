@@ -46,6 +46,7 @@ def _question_groups_as_dicts(project_id: str, db: Session) -> list[dict]:
             "group_name": g.group_name,
             "selection_type": g.selection_type,
             "question_numbers": json.loads(g.question_numbers_json or "[]"),
+            "selection_units": json.loads(g.selection_units_json or "[]") or [[question] for question in json.loads(g.question_numbers_json or "[]")],
             "n_required": g.n_required,
         }
         for g in groups
@@ -148,7 +149,11 @@ def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetRe
             for r in rows
         ]
         section_awarded = sum(q.ai_score or 0 for q in questions)
-        section_possible = sum(q.ai_total_possible or 0 for q in questions)
+        section_possible = sum(
+            q.ai_total_possible or 0
+            for q in questions
+            if q.choice_status not in ("skipped_beyond_n", "skipped_blank")
+        )
         section_summaries.append(
             SectionSummary(
                 section_name=name,
@@ -209,6 +214,19 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     pending_numbers = [qn for qn in qb_items_by_number if qn not in already_complete]
 
     question_region_map = json.loads(sheet.question_region_map_json or "{}")
+    uncertain_regions = [
+        key
+        for key, refs in question_region_map.items()
+        if any(bool(ref.get("alignment_uncertain", False) or ref.get("page_correspondence_uncertain", False)) for ref in refs)
+    ]
+    if uncertain_regions:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Grading is blocked because page alignment is uncertain for "
+                f"{', '.join(uncertain_regions[:8])}. Review the booklet correspondence or re-upload the sheet."
+            ),
+        )
     regions_dir = storage.answer_sheet_dir(project_id, sheet.id) / "regions"
 
     filtered = first_n_filter.apply_first_n_filter(
@@ -277,7 +295,9 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     db.commit()
 
     any_hard_failure = any(r.grading_status == "failed" for r in graded_results) or bool(filtered.no_regions)
-    requires_review = any(r.grading_status == "complete" for r in graded_results)
+    # Blank and beyond-limit choices are closed automatically. A genuine ambiguous
+    # ink state remains a human decision, just like an AI-scored answer.
+    requires_review = any(r.grading_status == "complete" for r in graded_results) or bool(filtered.flagged_ambiguous)
     sheet.grading_status = "failed" if any_hard_failure else ("review_required" if requires_review else "complete")
     db.commit()
 
@@ -304,6 +324,9 @@ def list_results(project_id: str, answer_sheet_id: str, db: Session = Depends(ge
         grading_status=sheet.grading_status,
         results=[_result_to_response(r, project_id, region_map_keys) for r in results],
         summary=_build_summary(db, project_id, sheet.id),
+        report_ready=bool(sheet.report_path),
+        report_download_url=(f"/files/projects/{project_id}/answer_sheets/{sheet.id}/examiner_report.pdf" if sheet.report_path else None),
+        completed_at=sheet.completed_at,
     )
 
 
@@ -374,7 +397,7 @@ def confirm_result(
             GradingResult.answer_sheet_id == sheet.id,
             GradingResult.id != result.id,
             GradingResult.reviewed.is_(False),
-            GradingResult.choice_status == "graded",
+            GradingResult.choice_status.in_(["graded", "flagged_ambiguous"]),
             GradingResult.grading_status != "failed",
         )
         .count()

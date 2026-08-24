@@ -43,6 +43,15 @@ def main() -> int:
             assert created.status_code == 201, created.text
             project_id = created.json()["id"]
 
+            template_map = client.get(f"/projects/{project_id}/template-map")
+            assert template_map.status_code == 200, template_map.text
+            page_number = template_map.json()["pages"][0]["page_number"]
+            mapped = client.put(
+                f"/projects/{project_id}/template-map",
+                json={"regions": [{"page_number": page_number, "question_number": "1", "part_label": "", "bbox": [10, 10, 100, 100]}]},
+            )
+            assert mapped.status_code == 200, mapped.text
+
             template_confirm = client.post(f"/projects/{project_id}/template-map/confirm")
             assert template_confirm.status_code == 200, template_confirm.text
             question_bank = client.get(f"/projects/{project_id}/question-bank").json()

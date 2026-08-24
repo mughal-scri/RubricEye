@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from app.services.alignment import compute_alignment_matrix, transform_bbox
+from app.services.alignment import compute_alignment_result, transform_bbox
 from app.services.storage import atomic_write_bytes
 
 
@@ -14,6 +16,13 @@ def _question_key(question_number: str, part_label: str) -> str:
     if part_label:
         return f"{question_number}{part_label}"
     return question_number
+
+
+def safe_region_filename_key(label: str) -> str:
+    """Create a bounded, collision-resistant filename component from a label."""
+    readable = re.sub(r"[^A-Za-z0-9_-]+", "_", label).strip("_") or "region"
+    digest = hashlib.sha256(label.encode("utf-8")).hexdigest()[:12]
+    return f"{readable[:48]}-{digest}"
 
 
 def _clamp_bbox(bbox: list[int], width: int, height: int) -> list[int]:
@@ -60,11 +69,13 @@ def build_question_region_map(
     alignment_reference: dict,
     regions_output_dir: Path,
     skip_page_indices: set[int] | None = None,
+    uncertain_page_numbers: set[int] | None = None,
 ) -> tuple[dict[str, list[dict]], dict[str, list[str]]]:
     question_region_map: dict[str, list[dict]] = {}
     region_preview_urls: dict[str, list[str]] = {}
     regions_output_dir.mkdir(parents=True, exist_ok=True)
     skip_page_indices = skip_page_indices or set()
+    uncertain_page_numbers = uncertain_page_numbers or set()
     page_lookup = {page["page_number"]: page for page in template_map_pages}
 
     for page_index, scan_path in enumerate(page_image_paths):
@@ -74,7 +85,8 @@ def build_question_region_map(
         page_data = page_lookup.get(page_number)
         if not page_data:
             continue
-        matrix = compute_alignment_matrix(scan_path, alignment_reference, page_number)
+        alignment = compute_alignment_result(scan_path, alignment_reference, page_number)
+        matrix = alignment.matrix
         image = cv2.imread(scan_path)
         if image is None:
             continue
@@ -93,7 +105,7 @@ def build_question_region_map(
             crop = image[y1:y2, x1:x2]
             if crop.size == 0:
                 continue
-            preview_name = f"{key}_p{page_number}.png"
+            preview_name = f"{safe_region_filename_key(key)}_p{page_number}.png"
             preview_path = regions_output_dir / preview_name
             atomic_write_bytes(preview_path, cv2.imencode(".png", crop)[1].tobytes())
             question_region_map.setdefault(key, []).append(
@@ -102,6 +114,10 @@ def build_question_region_map(
                     "bbox": expanded_bbox,
                     "nominal_bbox": nominal_bbox,
                     "overflow_detected": _has_overflow(image, nominal_bbox, expanded_bbox),
+                    "alignment_method": alignment.method,
+                    "alignment_confidence": alignment.confidence,
+                    "alignment_uncertain": alignment.method in {"scale_only", "failed"},
+                    "page_correspondence_uncertain": page_number in uncertain_page_numbers,
                 }
             )
             region_preview_urls.setdefault(key, []).append(str(preview_path))

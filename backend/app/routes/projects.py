@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import shutil
+from pathlib import Path
 import uuid
 from datetime import datetime, timedelta, timezone
 
@@ -11,10 +12,13 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import Project, QuestionBankItem, TemplateMapPage
-from app.schemas.models import ProjectDetail, ProjectSummary
+from app.schemas.models import ProjectDetail, ProjectSummary, RubricStudioCriterionDraft
 from app.services import storage
+from app.services.pdf_validation import read_validated_upload
 from app.services.pdf_pipeline import pdf_to_ordered_images
 from app.services.question_bank_extractor import extract_question_bank
+from app.services.rubric_studio import materialize_draft
+from app.services.rubric_pdf import render_text_rubric_pdf
 from app.services.template_derivation import derive_template_map, regions_to_json
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -27,12 +31,11 @@ def _project_to_summary(project: Project) -> ProjectSummary:
 
 
 def _project_to_detail(project: Project) -> ProjectDetail:
-    return ProjectDetail.model_validate(project)
-
-
-def _validate_pdf(upload: UploadFile, field_name: str) -> None:
-    if not upload.filename or not upload.filename.lower().endswith(".pdf"):
-        raise HTTPException(status_code=400, detail=f"{field_name} must be a PDF file.")
+    detail = ProjectDetail.model_validate(project)
+    rubric_path = Path(project.rubric_file_path)
+    if rubric_path.suffix.lower() == ".pdf" and rubric_path.exists():
+        detail.rubric_download_url = f"/files/projects/{project.id}/rubric.pdf"
+    return detail
 
 
 def _get_project_or_404(project_id: str, db: Session) -> Project:
@@ -127,31 +130,69 @@ def get_project(project_id: str, db: Session = Depends(get_db)) -> ProjectDetail
 @router.post("", response_model=ProjectDetail, status_code=201)
 async def create_project(
     name: str = Form(...),
-    rubric: UploadFile = File(...),
+    rubric: UploadFile | None = File(None),
     question_paper: UploadFile = File(...),
     blank_booklet: UploadFile = File(...),
+    rubric_mode: str = Form("upload"),
+    rubric_text: str | None = Form(None),
+    rubric_draft_json: str | None = Form(None),
+    rubric_draft_reviewed: bool = Form(False),
     db: Session = Depends(get_db),
 ) -> ProjectDetail:
-    _validate_pdf(rubric, "rubric")
-    _validate_pdf(question_paper, "question_paper")
-    _validate_pdf(blank_booklet, "blank_booklet")
+    if rubric_mode not in {"upload", "text", "studio"}:
+        raise HTTPException(status_code=400, detail="rubric_mode must be 'upload', 'text', or 'studio'.")
+    if rubric_mode == "upload" and rubric is None:
+        raise HTTPException(status_code=400, detail="rubric is required when rubric_mode is 'upload'.")
+    if rubric_mode == "text" and (not rubric_text or not rubric_text.strip()):
+        raise HTTPException(status_code=400, detail="rubric_text is required when rubric_mode is 'text'.")
+    if rubric_mode == "studio" and not rubric_draft_json:
+        raise HTTPException(status_code=400, detail="A reviewed Rubric Studio draft is required when rubric_mode is 'studio'.")
     if not name.strip():
         raise HTTPException(status_code=400, detail="Project name cannot be empty.")
 
+    studio_criteria: list[dict] | None = None
+    if rubric_mode == "studio":
+        try:
+            draft = json.loads(rubric_draft_json or "{}")
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail="Rubric Studio draft is not valid JSON.") from exc
+        candidate_criteria = draft.get("criteria") if isinstance(draft, dict) else None
+        if not rubric_draft_reviewed:
+            raise HTTPException(status_code=400, detail="Review the complete Rubric Studio draft before creating the project.")
+        if not isinstance(candidate_criteria, list) or not candidate_criteria:
+            raise HTTPException(status_code=400, detail="Rubric Studio draft contains no criteria.")
+        try:
+            parsed_criteria = [RubricStudioCriterionDraft.model_validate(item) for item in candidate_criteria]
+        except Exception as exc:  # noqa: BLE001 — convert malformed client drafts to a safe validation response
+            raise HTTPException(status_code=400, detail="Rubric Studio draft contains an invalid criterion.") from exc
+        numbers = [criterion.question_number.strip() for criterion in parsed_criteria]
+        if any(not number for number in numbers) or len(numbers) != len(set(numbers)):
+            raise HTTPException(status_code=400, detail="Rubric Studio draft must contain unique question labels.")
+        incomplete = [criterion.question_number for criterion in parsed_criteria if criterion.marks_possible is None or not (criterion.key_points or "").strip()]
+        if incomplete:
+            raise HTTPException(status_code=400, detail=f"Complete every Rubric Studio criterion before creating the project: {', '.join(incomplete)}.")
+        studio_criteria = [criterion.model_dump() for criterion in parsed_criteria]
+
     project_id = str(uuid.uuid4())
+    rubric_bytes = await read_validated_upload(rubric, "rubric") if rubric is not None else None
+    question_paper_bytes = await read_validated_upload(question_paper, "question_paper")
+    blank_booklet_bytes = await read_validated_upload(blank_booklet, "blank_booklet")
+
     project_dir = storage.project_dir(project_id)
     rubric_path = project_dir / "rubric.pdf"
     question_paper_path = project_dir / "question_paper.pdf"
     blank_booklet_path = project_dir / "blank_booklet.pdf"
-
-    rubric_bytes = await rubric.read()
-    question_paper_bytes = await question_paper.read()
-    blank_booklet_bytes = await blank_booklet.read()
-    storage.save_upload(rubric_path, rubric_bytes)
+    if rubric_bytes is not None:
+        storage.save_upload(rubric_path, rubric_bytes)
+    elif rubric_mode == "text":
+        storage.atomic_write_text(project_dir / "rubric_source.txt", rubric_text.strip())
+        render_text_rubric_pdf(rubric_path, project_name=name.strip(), rubric_text=rubric_text)
+    else:
+        storage.atomic_write_bytes(rubric_path, b"%PDF-1.4\n% Rubric Studio draft pending\n")
     storage.save_upload(question_paper_path, question_paper_bytes)
     storage.save_upload(blank_booklet_path, blank_booklet_bytes)
 
-    project = Project(id=project_id, name=name.strip(), rubric_file_path=str(rubric_path), question_paper_file_path=str(question_paper_path), blank_booklet_file_path=str(blank_booklet_path), rubric_locked=True, template_map_confirmed=False, template_map_status="pending", question_bank_confirmed=False)
+    project = Project(id=project_id, name=name.strip(), rubric_file_path=str(rubric_path), question_paper_file_path=str(question_paper_path), blank_booklet_file_path=str(blank_booklet_path), rubric_locked=(rubric_mode != "studio"), rubric_source_mode=rubric_mode, rubric_studio_status="not_used" if rubric_mode != "studio" else "needs_generation", template_map_confirmed=False, template_map_status="pending", question_bank_confirmed=False)
     db.add(project)
     db.commit()
     db.refresh(project)
@@ -168,7 +209,10 @@ async def create_project(
             db.commit()
 
     try:
-        _run_question_bank_extraction(db, project)
+        if rubric_mode in {"upload", "text"}:
+            _run_question_bank_extraction(db, project)
+        else:
+            materialize_draft(project, studio_criteria or [], db, approved=True)
     except Exception:  # noqa: BLE001
         LOGGER.exception("Question-bank extraction failed for project %s", project_id)
         db.rollback()

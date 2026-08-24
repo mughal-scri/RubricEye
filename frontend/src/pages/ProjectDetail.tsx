@@ -1,7 +1,7 @@
-import { ArrowLeft, CheckCircle2, Clock3, Eye, FileCheck2, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, Eye, FileCheck2, FileDown, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AnswerSheetSummary, getProject, gradeAnswerSheet, listAnswerSheets, listQuestionBank, ProjectDetail as ProjectDetailType } from "../api/client";
+import { AnswerSheetSummary, fileUrl, getProject, gradeAnswerSheet, listAnswerSheets, listQuestionBank, ProjectDetail as ProjectDetailType } from "../api/client";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
 
 export default function ProjectDetailPage() {
@@ -63,13 +63,15 @@ export default function ProjectDetailPage() {
       <div className="page-header">
         <div className="page-title-group">
           <div className="eyebrow">Assessment workspace</div>
-          <div className="title-with-badges"><h1>{project.name}</h1><span className="badge badge-indigo"><ShieldLock size={12} /> Rubric locked</span></div>
+          <div className="title-with-badges"><h1>{project.name}</h1><span className="badge badge-indigo"><ShieldLock size={12} /> {project.rubric_source_mode === "studio" ? "Studio rubric" : project.rubric_source_mode === "text" ? "Pasted rubric" : "Rubric locked"}</span></div>
           <p>Created {formatDate(project.created_at)} · Project ID <code className="id-text">{project.id.slice(0, 8)}</code></p>
         </div>
         <div className="button-row wrap">
           <Link to={`/projects/${projectId}/template-map`} className="btn btn-secondary"><Layers size={16} /> Template map</Link>
           <Link to={`/projects/${projectId}/question-bank`} className="btn btn-secondary"><ListChecks size={16} /> Question bank</Link>
           <Link to={`/projects/${projectId}/question-groups`} className="btn btn-secondary"><Sparkles size={16} /> Question groups</Link>
+          {project.rubric_source_mode === "studio" && <Link to={`/projects/${projectId}/rubric-studio`} className="btn btn-secondary"><Sparkles size={16} /> Rubric Studio</Link>}
+          {project.rubric_download_url && <a href={fileUrl(project.rubric_download_url)} download="rubric.pdf" className="btn btn-secondary"><FileDown size={16} /> Download rubric</a>}
           {ready ? <Link to={`/projects/${projectId}/upload`} className="btn btn-primary"><Upload size={16} /> Upload answer sheet</Link> : <button type="button" className="btn btn-secondary" disabled title="Confirm the template map and question bank first"><Upload size={16} /> Upload locked</button>}
         </div>
       </div>
@@ -84,9 +86,9 @@ export default function ProjectDetailPage() {
       </section>
 
       <div className="readiness-grid">
-        <div className="card readiness-card"><div className="card-label"><ShieldLock size={17} /> Rubric</div><strong>Locked for this assessment</strong><p>Source criteria remain fixed for consistent grading.</p></div>
+        <div className="card readiness-card"><div className="card-label"><ShieldLock size={17} /> Rubric</div><strong>{project.rubric_source_mode === "studio" ? "Studio draft saved" : project.rubric_source_mode === "text" ? "Pasted rubric saved" : "Official rubric locked"}</strong><p>Source criteria remain fixed for consistent grading.</p></div>
         <div className="card readiness-card"><div className="card-label"><Layers size={17} /> Template map</div><strong className={project.template_map_confirmed ? "text-success" : "text-warning"}>{project.template_map_confirmed ? "Confirmed and locked" : "Needs review before upload"}</strong><p>{project.template_map_status || "Candidate map status unavailable"}</p></div>
-        <div className="card readiness-card"><div className="card-label"><GraduationCap size={17} /> Question bank</div><strong className={project.question_bank_confirmed ? "text-success" : "text-warning"}>{project.question_bank_confirmed ? "Confirmed" : "In draft"}</strong><p>{questionBankCount} question{questionBankCount === 1 ? "" : "s"} available.</p></div>
+        <div className="card readiness-card"><div className="card-label"><GraduationCap size={17} /> Question bank</div><strong className={project.question_bank_confirmed ? "text-success" : "text-warning"}>{project.question_bank_confirmed ? "Confirmed" : "In draft"}</strong><p>{questionBankCount} question{questionBankCount === 1 ? "" : "s"} available{project.question_bank_effective_total !== null && project.question_bank_effective_total !== undefined ? ` · ${project.question_bank_effective_total} effective marks` : ""}.</p></div>
         <div className="card readiness-card"><div className="card-label"><FileUp size={17} /> Answer sheets</div><strong>{sheets.length} uploaded</strong><p>{pendingSheets} with AI results ready for review.</p></div>
       </div>
 
@@ -94,7 +96,7 @@ export default function ProjectDetailPage() {
       {sheets.length === 0 ? (
         <div className="empty-state"><div className="empty-state-icon"><FileUp size={28} /></div><h3>No answer sheets uploaded yet</h3><p>{ready ? "Upload a roll-number-identified booklet to begin." : "Confirm the template map and question bank before uploading."}</p>{ready && <Link to={`/projects/${projectId}/upload`} className="btn btn-primary"><Upload size={16} /> Upload answer sheet</Link>}</div>
       ) : (
-        <div className="table-container"><table className="table"><thead><tr><th>Roll number</th><th>Pages</th><th>Uploaded</th><th>Preparation</th><th>Grading</th><th>Actions</th></tr></thead><tbody>{sheets.map((sheet) => { const status = gradingStatusLabel(sheet.grading_status); const canGrade = sheet.grading_status === "not_graded" || sheet.grading_status === "failed"; return <tr key={sheet.id}><td><strong>Roll {sheet.roll_number}</strong></td><td><span className="badge badge-slate">{sheet.page_count} pages</span></td><td className="muted-text">{formatDate(sheet.uploaded_at)}</td><td><span className="badge badge-slate"><CheckCircle2 size={12} /> Prepared for review</span></td><td><span className={`badge badge-${status.tone}`}>{status.label}</span></td><td><div className="button-row table-actions">{canGrade ? <button type="button" className="btn btn-primary btn-sm" disabled={!project.question_bank_confirmed || gradingSheetId === sheet.id} title={!project.question_bank_confirmed ? "Confirm the question bank first" : undefined} onClick={() => triggerGrade(sheet.id)}><GraduationCap size={14} />{gradingSheetId === sheet.id ? "Grading…" : "Grade"}</button> : <Link to={`/projects/${projectId}/answer-sheets/${sheet.id}/results`} className="btn btn-secondary btn-sm"><GraduationCap size={14} /> Review results</Link>}<Link to={`/projects/${projectId}/answer-sheets/${sheet.id}`} className="btn btn-secondary btn-sm"><Eye size={14} /> Segmentation</Link></div></td></tr>; })}</tbody></table></div>
+        <div className="table-container"><table className="table"><thead><tr><th>Roll number</th><th>Pages</th><th>Uploaded</th><th>Preparation</th><th>Grading</th><th>Actions</th></tr></thead><tbody>{sheets.map((sheet) => { const status = gradingStatusLabel(sheet.grading_status); const canGrade = sheet.grading_status === "not_graded" || sheet.grading_status === "failed"; return <tr key={sheet.id}><td><strong>Roll {sheet.roll_number}</strong></td><td><span className="badge badge-slate">{sheet.page_count} pages</span></td><td className="muted-text">{formatDate(sheet.uploaded_at)}</td><td><span className="badge badge-slate"><CheckCircle2 size={12} /> Prepared for review</span></td><td><span className={`badge badge-${status.tone}`}>{status.label}</span></td><td><div className="button-row table-actions">{canGrade ? <button type="button" className="btn btn-primary btn-sm" disabled={!project.question_bank_confirmed || gradingSheetId === sheet.id} title={!project.question_bank_confirmed ? "Confirm the question bank first" : undefined} onClick={() => triggerGrade(sheet.id)}><GraduationCap size={14} />{gradingSheetId === sheet.id ? "Grading…" : "Grade"}</button> : <Link to={`/projects/${projectId}/answer-sheets/${sheet.id}/results`} className="btn btn-secondary btn-sm"><GraduationCap size={14} /> Review results</Link>}{sheet.report_ready && sheet.report_download_url && <a href={fileUrl(sheet.report_download_url)} download="examiner-report.pdf" className="btn btn-success btn-sm"><FileDown size={14} /> Report PDF</a>}<Link to={`/projects/${projectId}/answer-sheets/${sheet.id}`} className="btn btn-secondary btn-sm"><Eye size={14} /> Segmentation</Link></div></td></tr>; })}</tbody></table></div>
       )}
     </div>
   );
