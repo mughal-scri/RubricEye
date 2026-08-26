@@ -20,6 +20,7 @@ from app.schemas.models import (
 )
 from app.services import first_n_filter, grading, storage
 from app.services.question_grouping import resolve_region_keys_for_question
+from app.services.segmentation import safe_region_filename_key
 
 router = APIRouter(prefix="/projects", tags=["grading"])
 
@@ -39,7 +40,7 @@ def _get_sheet_or_404(project_id: str, answer_sheet_id: str, db: Session) -> Ans
 
 
 def _question_groups_as_dicts(project_id: str, db: Session) -> list[dict]:
-    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
+    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id, QuestionGroup.suggestion_status == "confirmed").all()
     return [
         {
             "id": g.id,
@@ -60,7 +61,7 @@ def _region_preview_urls(project_id: str, sheet_id: str, question_number: str, r
     if not regions_dir.exists():
         return urls
     for key in keys:
-        for path in sorted(regions_dir.glob(f"{key}_p*.png")):
+        for path in sorted(regions_dir.glob(f"{safe_region_filename_key(key)}_p*.png")):
             urls.append(f"/files/projects/{project_id}/answer_sheets/{sheet_id}/regions/{path.name}")
     return urls
 
@@ -111,7 +112,7 @@ def _upsert_result(db: Session, sheet_id: str, question_number: str, **fields) -
 def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetResultsSummary:
     """Edge Case G: computed on read from GradingResult + QuestionGroup, never persisted."""
     results = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet_id).all()
-    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
+    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id, QuestionGroup.suggestion_status == "confirmed").all()
 
     group_listed: dict[str, set[str]] = {}
     for g in groups:
@@ -181,6 +182,23 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     if not project.question_bank_confirmed:
         raise HTTPException(status_code=409, detail="Question bank must be confirmed before grading.")
 
+    # Validate correspondence before changing durable state. An uncertainty response
+    # must leave the sheet retryable rather than marooning it in in_progress.
+    question_region_map = json.loads(sheet.question_region_map_json or "{}")
+    uncertain_regions = [
+        key
+        for key, refs in question_region_map.items()
+        if any(bool(ref.get("alignment_uncertain", False) or ref.get("page_correspondence_uncertain", False)) for ref in refs)
+    ]
+    if uncertain_regions:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Grading is blocked because page alignment is uncertain for "
+                f"{', '.join(uncertain_regions[:8])}. Review the booklet correspondence or re-upload the sheet."
+            ),
+        )
+
     # Edge Case C (idempotency): an already-processed sheet is never re-processed
     # merely because examiner review is still outstanding.
     if sheet.grading_status in ("complete", "review_required"):
@@ -200,6 +218,25 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     sheet.grading_status = "in_progress"
     db.commit()
 
+    try:
+        return _trigger_grading_inner(project_id, answer_sheet_id, db, sheet)
+    except HTTPException:
+        db.rollback()
+        failed_sheet = db.get(AnswerSheet, sheet.id)
+        if failed_sheet and failed_sheet.grading_status == "in_progress":
+            failed_sheet.grading_status = "failed"
+            db.commit()
+        raise
+    except Exception as exc:  # noqa: BLE001 — preserve retryability after unexpected processing failures
+        db.rollback()
+        failed_sheet = db.get(AnswerSheet, sheet.id)
+        if failed_sheet:
+            failed_sheet.grading_status = "failed"
+            db.commit()
+        raise HTTPException(status_code=500, detail="Grading failed unexpectedly; retry the answer sheet after reviewing the saved error logs.") from exc
+
+
+def _trigger_grading_inner(project_id: str, answer_sheet_id: str, db: Session, sheet: AnswerSheet) -> GradeTriggerResponse:
     qb_items = db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
     qb_items_by_number = {item.question_number: item for item in qb_items}
     question_groups = _question_groups_as_dicts(project_id, db)
@@ -214,19 +251,6 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     pending_numbers = [qn for qn in qb_items_by_number if qn not in already_complete]
 
     question_region_map = json.loads(sheet.question_region_map_json or "{}")
-    uncertain_regions = [
-        key
-        for key, refs in question_region_map.items()
-        if any(bool(ref.get("alignment_uncertain", False) or ref.get("page_correspondence_uncertain", False)) for ref in refs)
-    ]
-    if uncertain_regions:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                "Grading is blocked because page alignment is uncertain for "
-                f"{', '.join(uncertain_regions[:8])}. Review the booklet correspondence or re-upload the sheet."
-            ),
-        )
     regions_dir = storage.answer_sheet_dir(project_id, sheet.id) / "regions"
 
     filtered = first_n_filter.apply_first_n_filter(

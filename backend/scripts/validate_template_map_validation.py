@@ -42,6 +42,13 @@ def main() -> int:
             _RegionValidationPayload(1, "1", "i", [25, 25, 40, 40]),
         ]
         _assert_422(duplicate, pages, "Duplicate region identity")
+        aliases = [
+            _RegionValidationPayload(1, "Q2(i)", "", [1, 1, 20, 20]),
+            _RegionValidationPayload(1, "2", "i", [25, 25, 40, 40]),
+        ]
+        _assert_422(aliases, pages, "Duplicate region identity")
+        normalized = _validate_regions([_RegionValidationPayload(1, "Question 3(a)", "", [1, 1, 20, 20])], pages, require_any=True)
+        assert normalized[1][0]["question_number"] == "3" and normalized[1][0]["part_label"] == "a", normalized
 
     print("Template-map validation regression passed: empty confirmation, unlabeled, invalid, out-of-bounds, and duplicate regions are rejected with 422.")
     return 0

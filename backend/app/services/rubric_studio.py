@@ -168,6 +168,8 @@ def materialize_draft(project, criteria: list[dict], db, approved: bool = False)
             rubric_provenance=criterion.get("rubric_provenance", "Question paper wording"),
             rubric_confidence=criterion.get("rubric_confidence", "low"),
             rubric_reviewed=bool(criterion.get("rubric_reviewed", False)),
+            alignment_question_number=criterion.get("alignment_question_number"),
+            alignment_status=criterion.get("alignment_status", "unreviewed"),
         ))
     project.rubric_studio_status = "approved" if approved else "draft_ready"
     project.rubric_locked = approved

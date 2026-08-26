@@ -17,6 +17,7 @@ os.environ["RUBRICEYE_DATA_DIR"] = str(ROOT / "data")
 os.environ["RUBRICEYE_DASHSCOPE_API_KEY"] = ""
 
 from app.main import app  # noqa: E402
+from app.routes.grading import _region_preview_urls  # noqa: E402
 
 from real_fixture_paths import BLANK, QUESTION_PAPER, RUBRIC, answer_books
 
@@ -83,6 +84,11 @@ def main() -> int:
                 assert detail["page_count"] == 9, detail
                 assert not missing, {"book": answer_book.name, "missing": missing, "actual": sorted(actual_keys)}
                 assert all(detail["region_preview_urls"].get(key) for key in EXPECTED_KEYS), detail["region_preview_urls"]
+                result_preview_urls = {
+                    key: _region_preview_urls(project_id, detail["id"], key, list(detail["question_region_map"]))
+                    for key in EXPECTED_KEYS
+                }
+                assert all(result_preview_urls.values()), result_preview_urls
 
         print("Real segmentation regression passed: all three sanitized answer books mapped without grading calls.")
         return 0

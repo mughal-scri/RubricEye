@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowLeft, CheckCircle2, FileText, Layers, Lock, RotateCcw, Unlock } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { confirmTemplateMap, fileUrl, getTemplateMap, TemplateMapResponse, TemplateRegion, TemplateRegionInput, unlockTemplateMap, updateTemplateMap } from "../api/client";
+import { confirmTemplateMap, fileUrl, getTemplateMap, retryTemplateMap, TemplateMapResponse, TemplateRegion, TemplateRegionInput, unlockTemplateMap, updateTemplateMap } from "../api/client";
 import RegionEditorTable from "../components/RegionEditorTable";
 import RegionOverlay from "../components/RegionOverlay";
 import { errorMessage } from "../ui";
@@ -29,6 +29,7 @@ export default function TemplateMapReview() {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
@@ -66,6 +67,12 @@ export default function TemplateMapReview() {
       return replacement ? [replacement] : [];
     });
     setRows([...merged, ...nextRows.slice(cursor)]);
+  };
+
+  const retry = async () => {
+    if (!projectId) return;
+    setRetrying(true); setError("");
+    try { const data = await retryTemplateMap(projectId); setTemplateMap(data); setRows(rowsFromMap(data)); setSelectedPageNumber(data.pages[0]?.page_number ?? null); } catch (err) { setError(errorMessage(err)); } finally { setRetrying(false); }
   };
 
   const confirm = async () => {
@@ -121,7 +128,7 @@ export default function TemplateMapReview() {
     {error && <div className="alert alert-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}
     {message && <div className="alert alert-success" role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}
     <div className="reading-hero"><div className="reading-hero-icon"><Layers size={24} /></div><div><strong>{rows.length} answer region{rows.length === 1 ? "" : "s"} understood across {pagesWithRegions.length} page{pagesWithRegions.length === 1 ? "" : "s"}.</strong><p>{templateMap.confirmed ? "This map is confirmed. Unlock diagnostics to correct it only before any answer sheets are uploaded." : "Select a page, inspect the image overlays, and correct any label or boundary before confirming."}</p></div></div>
-    {templateMap.pages.length === 0 ? <div className="empty-state"><FileText size={26} /><h3>No booklet pages were understood</h3><p>Retry preparation or check that the blank booklet is readable before continuing.</p></div> : <>
+    {templateMap.pages.length === 0 ? <div className="empty-state"><FileText size={26} /><h3>No booklet pages were understood</h3><p>Retry preparation or check that the blank booklet is readable before continuing.</p><button type="button" className="btn btn-primary" onClick={() => void retry()} disabled={retrying}>{retrying ? "Retrying…" : "Retry preparation"}</button></div> : <>
       <div className="tab-pills" role="tablist" aria-label="Booklet pages">{templateMap.pages.map((page) => <button type="button" role="tab" aria-selected={selectedPage?.page_number === page.page_number} className={`tab-pill ${selectedPage?.page_number === page.page_number ? "active" : ""}`} key={page.page_number} onClick={() => { setSelectedPageNumber(page.page_number); setHoveredIndex(null); }}>{`Page ${page.page_number} · ${rowCountByPage.get(page.page_number) ?? 0} regions`}</button>)}</div>
       {selectedPage && <div className="template-review-container"><div className="card"><div className="section-heading compact"><div><h3>Page {selectedPage.page_number} image</h3><p>Click a highlighted region or hover a table row to cross-check the mapping.</p></div></div><RegionOverlay imageUrl={fileUrl(selectedPage.page_image_url)} regions={selectedRegions} hoveredIndex={hoveredIndex} onSelectRegion={setHoveredIndex} /></div><RegionEditorTable rows={selectedRows} onChange={updateSelectedRows} hoveredIndex={hoveredIndex} onHoverRow={setHoveredIndex} readOnly={templateMap.confirmed} /></div>}
     </>}

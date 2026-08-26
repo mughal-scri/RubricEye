@@ -7,6 +7,7 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def main() -> int:
     question_bank = (ROOT / "frontend/src/pages/QuestionBankSetup.tsx").read_text(encoding="utf-8")
+    question_grouping = (ROOT / "backend/app/services/question_grouping.py").read_text(encoding="utf-8")
     studio_editor = (ROOT / "frontend/src/components/RubricCriteriaEditor.tsx").read_text(encoding="utf-8")
     structure = (ROOT / "backend/app/services/paper_structure.py").read_text(encoding="utf-8")
     styles = (ROOT / "frontend/src/styles.css").read_text(encoding="utf-8")
@@ -37,6 +38,7 @@ def main() -> int:
     assert "readOnly={templateMap.confirmed}" in template_page and "readOnly?: boolean" in region_editor, "Confirmed template maps must be read-only"
     assert "onKeyDown" in region_overlay and "role=\"button\"" in region_overlay, "Overlay regions must be keyboard accessible"
     assert "35" not in structure, "Paper structure service must not contain the supplied paper's fixed total"
+    assert "Abdullah" not in question_grouping and "Testanswerbook" not in question_grouping, "Production grouping logic must not reference supplied fixtures"
     print("Frontend/source guard regression passed: Question Bank and Rubric Studio editors are content-sized and paper-structure logic has no fixed supplied-paper anchor or total.")
     return 0
 

@@ -58,6 +58,7 @@ class GroupSuggestion:
     n_required: int | None
     selection_units: list[list[str]] = field(default_factory=list)
     evidence: str = ""
+    confidence: str = "medium"
 
 
 @dataclass
@@ -132,6 +133,7 @@ def _suggestion(group_name: str, n_required: int, units: list[list[str]], eviden
         n_required=n_required,
         selection_units=units,
         evidence=evidence.strip(),
+        confidence=("high" if re.search(r"\b(?:of|out of)\b", evidence, re.IGNORECASE) else "medium"),
     )
 
 

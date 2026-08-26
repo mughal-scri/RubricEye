@@ -1,6 +1,6 @@
 :root {
-  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-display: ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-sans: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Inter', ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', monospace;
 
   /* Colors */
@@ -10,6 +10,14 @@
   --color-brand-600: #4f46e5;
   --color-brand-700: #4338ca;
   --color-brand-900: #312e81;
+
+  /* Stitch Workspace Design System Tokens */
+  --color-stitch-primary: #000666;
+  --color-stitch-ink: #1a237e;
+  --color-stitch-cobalt: #4355b9;
+  --color-surface-paper: #FDFCFB;
+  --color-surface-workspace: #F8F9FA;
+  --border-hairline: rgba(26, 35, 126, 0.12);
 
   --color-slate-50: #f8fafc;
   --color-slate-100: #f1f5f9;
@@ -3197,6 +3205,17 @@ textarea.form-input {
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+.alignment-list { display: grid; gap: 0; }
+.alignment-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 24px; padding: 22px 0; border-top: 1px solid var(--color-slate-200); }
+.alignment-row:first-of-type { border-top: 0; }
+.alignment-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.alignment-criterion p { margin: 8px 0 6px; color: var(--color-slate-500); }
+.alignment-criterion small { color: var(--color-slate-400); }
+.alignment-decision { display: grid; align-content: start; gap: 8px; }
+.alignment-state { display: flex; align-items: center; gap: 6px; min-height: 22px; font-size: .85rem; }
+.saved-note { display: inline-flex; align-items: center; gap: 6px; color: var(--color-emerald-700); }
+@media (max-width: 760px) { .alignment-row { grid-template-columns: 1fr; gap: 14px; } }
 
 @media (max-width: 800px) {
   .rubric-choice {

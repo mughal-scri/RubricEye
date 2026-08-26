@@ -121,6 +121,8 @@ class QuestionBankItem(Base):
     rubric_provenance: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rubric_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
     rubric_reviewed: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    alignment_question_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    alignment_status: Mapped[str] = mapped_column(String(24), default="unreviewed", nullable=False)
 
     project: Mapped["Project"] = relationship(back_populates="question_bank_items")
 
@@ -143,6 +145,9 @@ class QuestionGroup(Base):
     question_numbers_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     selection_units_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     n_required: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    suggestion_confidence: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    suggestion_evidence: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggestion_status: Mapped[str] = mapped_column(String(16), default="confirmed", nullable=False)
 
     project: Mapped["Project"] = relationship(back_populates="question_groups")
 

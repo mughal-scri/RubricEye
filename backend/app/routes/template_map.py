@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from app.schemas.models import (
     TemplateRegion,
 )
 from app.services import storage
+from app.services.question_grouping import canonical_question_label, split_base_and_part
 from app.services.template_derivation import regions_from_json, regions_to_json
 
 router = APIRouter(prefix="/projects", tags=["template-map"])
@@ -62,18 +64,26 @@ def _build_template_map_response(project: Project, pages: list[TemplateMapPage])
     )
 
 
+def _canonical_region_fields(question_number: str, part_label: str) -> tuple[str, str]:
+    """Normalize numeric question aliases while preserving unsupported custom labels."""
+    canonical = canonical_question_label(f"{question_number}{part_label}")
+    base, part = split_base_and_part(canonical)
+    if base.isdigit():
+        return base, part
+    return question_number.strip(), part_label.strip()
+
+
 def _validate_regions(regions: list, pages: dict[int, TemplateMapPage], *, require_any: bool) -> dict[int, list[dict]]:
     if require_any and not regions:
         raise HTTPException(status_code=422, detail="At least one mapped template region is required before confirmation.")
     grouped: dict[int, list[dict]] = {}
-    seen_on_page: set[tuple[int, str, str]] = set()
+    seen_on_page: set[tuple[int, str]] = set()
     for region in regions:
         page_number = int(region.page_number)
         page = pages.get(page_number)
         if page is None or page_number < 1:
             raise HTTPException(status_code=422, detail=f"Unknown template page number: {page_number}.")
-        question_number = region.question_number.strip()
-        part_label = region.part_label.strip()
+        question_number, part_label = _canonical_region_fields(region.question_number, region.part_label)
         if not question_number:
             raise HTTPException(status_code=422, detail=f"Page {page_number} contains a region without a question label.")
         if len(region.bbox) != 4:
@@ -90,7 +100,7 @@ def _validate_regions(regions: list, pages: dict[int, TemplateMapPage], *, requi
                 raise HTTPException(status_code=422, detail=f"Template page {page_number} image could not be read.") from exc
             if x2 > width or y2 > height:
                 raise HTTPException(status_code=422, detail=f"Region {question_number} on page {page_number} lies outside the page image.")
-        identity = (page_number, question_number.casefold(), part_label.casefold())
+        identity = (page_number, canonical_question_label(f"{question_number}{part_label}"))
         if identity in seen_on_page:
             raise HTTPException(status_code=422, detail=f"Duplicate region identity {question_number}{part_label} on page {page_number}.")
         seen_on_page.add(identity)
@@ -198,6 +208,37 @@ def confirm_template_map(project_id: str, db: Session = Depends(get_db)) -> Temp
     project.template_map_status = "confirmed"
     db.commit()
 
+    return _build_template_map_response(project, pages)
+
+
+@router.post("/{project_id}/template-map/retry", response_model=TemplateMapResponse)
+def retry_template_map(project_id: str, db: Session = Depends(get_db)) -> TemplateMapResponse:
+    from app.db.models import AnswerSheet
+    from app.routes.projects import _run_template_derivation
+
+    project = _get_project_or_404(project_id, db)
+    if project.template_map_confirmed:
+        raise HTTPException(status_code=409, detail="Template map is already confirmed and locked.")
+    if db.query(AnswerSheet).filter(AnswerSheet.project_id == project_id).count():
+        raise HTTPException(status_code=409, detail="Template preparation cannot be retried after answer sheets have been uploaded.")
+
+    blank_pages_dir = storage.blank_booklet_images_dir(project_id)
+    shutil.rmtree(blank_pages_dir, ignore_errors=True)
+    db.query(TemplateMapPage).filter(TemplateMapPage.project_id == project_id).delete()
+    project.template_map_status = "preparing"
+    project.template_map_error = None
+    db.commit()
+    try:
+        _run_template_derivation(db, project)
+    except Exception as exc:  # noqa: BLE001 — leave a durable, user-visible recovery state
+        db.rollback()
+        project = db.get(Project, project_id)
+        if project:
+            project.template_map_status = "failed"
+            project.template_map_error = "Template derivation failed again. Check the blank booklet and retry preparation."
+            db.commit()
+        raise HTTPException(status_code=422, detail="Template preparation failed. Check the blank booklet and retry preparation.") from exc
+    pages = db.query(TemplateMapPage).filter(TemplateMapPage.project_id == project_id).order_by(TemplateMapPage.page_number).all()
     return _build_template_map_response(project, pages)
 
 

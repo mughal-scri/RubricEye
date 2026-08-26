@@ -35,6 +35,9 @@ def _to_response(group: QuestionGroup) -> QuestionGroupResponse:
         question_numbers=json.loads(group.question_numbers_json or "[]"),
         n_required=group.n_required,
         selection_units=_selection_units(group),
+        suggestion_confidence=group.suggestion_confidence,
+        suggestion_evidence=group.suggestion_evidence,
+        suggestion_status=group.suggestion_status,
     )
 
 
@@ -95,8 +98,22 @@ def create_question_group(project_id: str, payload: QuestionGroupCreate, db: Ses
         question_numbers_json=json.dumps(payload.question_numbers),
         selection_units_json=json.dumps(units),
         n_required=payload.n_required if payload.selection_type == "choose_n_of_m" else None,
+        suggestion_status="confirmed",
     )
     db.add(group)
+    refresh_project_structure(project, db)
+    db.commit()
+    db.refresh(group)
+    return _to_response(group)
+
+
+@router.post("/{project_id}/question-groups/{group_id}/confirm", response_model=QuestionGroupResponse)
+def confirm_question_group(project_id: str, group_id: str, db: Session = Depends(get_db)) -> QuestionGroupResponse:
+    project = _get_project_or_404(project_id, db)
+    group = db.get(QuestionGroup, group_id)
+    if not group or group.project_id != project_id:
+        raise HTTPException(status_code=404, detail="Question group not found.")
+    group.suggestion_status = "confirmed"
     refresh_project_structure(project, db)
     db.commit()
     db.refresh(group)

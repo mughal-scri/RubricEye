@@ -5,6 +5,7 @@ import CreateProject from "./pages/CreateProject";
 import GradingResults from "./pages/GradingResults";
 import ProjectDetailPage from "./pages/ProjectDetail";
 import RubricStudio from "./pages/RubricStudio";
+import RubricAlignment from "./pages/RubricAlignment";
 import RubricStudioStandalone from "./pages/RubricStudioStandalone";
 import ProjectList from "./pages/ProjectList";
 import QuestionBankSetup from "./pages/QuestionBankSetup";
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="/projects/:projectId/template-map" element={<TemplateMapReview />} />
             <Route path="/projects/:projectId/question-bank" element={<QuestionBankSetup />} />
             <Route path="/projects/:projectId/rubric-studio" element={<RubricStudio />} />
+            <Route path="/projects/:projectId/rubric-alignment" element={<RubricAlignment />} />
             <Route path="/projects/:projectId/question-groups" element={<QuestionGroupSetup />} />
             <Route path="/projects/:projectId/upload" element={<UploadAnswerSheet />} />
             <Route path="/projects/:projectId/answer-sheets/:sheetId" element={<AnswerSheetDetailPage />} />

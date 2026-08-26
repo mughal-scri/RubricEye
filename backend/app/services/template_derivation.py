@@ -81,27 +81,37 @@ def _ocr_question_labels(image_path: Path) -> list[tuple[str, str, list[int]]]:
     image = cv2.imread(str(image_path))
     if image is None:
         return []
-    try:
-        data = pytesseract.image_to_data(image, output_type=Output.DICT)
-    except Exception:
-        return []
+    scale = min(1.6, 1800 / max(image.shape[:2]))
+    ocr_image = cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC) if scale > 1.01 else image
     labels: list[tuple[str, str, list[int]]] = []
-    n = len(data["text"])
-    for i in range(n):
-        text = (data["text"][i] or "").strip()
+    seen: set[tuple[str, str]] = set()
+    for config in ("--psm 6", "--psm 11"):
         try:
-            conf = float(data["conf"][i])
-        except (TypeError, ValueError):
-            conf = -1
-        if conf < 40 or not text:
+            data = pytesseract.image_to_data(ocr_image, config=config, output_type=Output.DICT)
+        except Exception:
             continue
-        match = QUESTION_PATTERN.search(text)
-        if not match:
-            continue
-        q_num = match.group(1)
-        part = _normalise_part(match.group(2) or match.group(3))
-        x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
-        labels.append((q_num, part, [x, y, x + w, y + h]))
+        n = len(data["text"])
+        for i in range(n):
+            text = (data["text"][i] or "").strip()
+            try:
+                conf = float(data["conf"][i])
+            except (TypeError, ValueError):
+                conf = -1
+            if conf < 40 or not text:
+                continue
+            match = QUESTION_PATTERN.search(text)
+            if not match:
+                continue
+            q_num = match.group(1)
+            part = _normalise_part(match.group(2) or match.group(3))
+            key = (q_num, part)
+            if key in seen:
+                continue
+            seen.add(key)
+            x, y, w, h = data["left"][i], data["top"][i], data["width"][i], data["height"][i]
+            labels.append((q_num, part, [int(x / scale), int(y / scale), int((x + w) / scale), int((y + h) / scale)]))
+        if labels:
+            break
     return labels
 
 
@@ -265,24 +275,35 @@ def derive_template_map(page_image_paths: list[str], source_pdf_path: str | None
             pdf_doc.close()
 
     # Empty cover/rough-work pages are normal. Trigger vision only when the
-    # booklet yielded too little semantic structure overall.
-    # If the uploaded blank booklet is a flattened scan, its OCR/CV result is
-    # only a provisional signal. Ask the vision model to understand the page
-    # semantics rather than accepting a partially matched map as high confidence.
+    # booklet yielded too little semantic structure overall, and send only pages
+    # for which local PDF/OCR/CV derivation found no labeled region. A missing
+    # PDF text layer is not itself evidence that every page needs the provider.
     flattened_booklet = source_pdf_path is not None and pdf_anchor_regions == 0
     confidence = "low" if total_regions < 2 or flattened_booklet else "high"
     used_vision_fallback = False
-    if confidence == "low":
+    pages_needing_vision = [
+        page_number
+        for page_number in sorted(pages)
+        if not pages[page_number]
+    ]
+    if confidence == "low" and pages_needing_vision:
+        vision_paths = [page_image_paths[page_number - 1] for page_number in pages_needing_vision]
+        vision_result = extract_regions_with_vision(vision_paths)
         used_vision_fallback = True
-        vision_result = extract_regions_with_vision(page_image_paths)
         if vision_result.pages:
-            for page_number, fallback_regions in vision_result.pages.items():
+            for fallback_page_number, fallback_regions in vision_result.pages.items():
+                if not (1 <= int(fallback_page_number) <= len(pages_needing_vision)):
+                    continue
+                page_number = pages_needing_vision[int(fallback_page_number) - 1]
                 if fallback_regions:
                     pages[page_number] = fallback_regions
             fallback_pages = vision_result.alignment_reference.get("pages", {})
-            for page_number, reference in fallback_pages.items():
+            for fallback_page_number, reference in fallback_pages.items():
+                if not (1 <= int(fallback_page_number) <= len(pages_needing_vision)):
+                    continue
+                page_number = pages_needing_vision[int(fallback_page_number) - 1]
                 if reference.get("width") and reference.get("height"):
-                    alignment_pages[page_number] = reference
+                    alignment_pages[str(page_number)] = reference
             total_regions = sum(len(regions) for regions in pages.values())
             confidence = vision_result.confidence if total_regions else "low"
 

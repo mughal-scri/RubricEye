@@ -13,13 +13,13 @@ choice correctly against the region map. This is the piece of Phase 2 the source
 documents didn't specify; see PHASE2_NOTES.md for the full rationale.
 
 Part labels may be a single letter ("a", "b", ...) OR a lowercase roman numeral
-("i", "ii", ... "vii", ...) — both are real exam conventions, confirmed by testing
-against Abdullah's actual mock exam (Q2's seven sub-parts are roman numerals, not
-letters). The two are genuinely ambiguous in isolation ("v" is a valid single letter
-AND a valid roman numeral) — resolved by looking at the whole sibling group a part
-belongs to, not each label alone: if ANY sibling is a multi-character roman numeral
-(e.g. "vii"), the whole group is treated as roman-numeral, since no real exam mixes
-both schemes within one question's sub-parts. See `build_part_sort_key`.
+("i", "ii", ... "vii", ...) — both are common exam conventions. The two are genuinely
+ambiguous in isolation ("v" is a valid single letter AND a valid roman numeral) —
+resolved by looking at the whole sibling group a part belongs to, not each label alone:
+if ANY sibling is a multi-character roman numeral (e.g. "vii"), the whole group is
+ treated as roman-numeral, since a single question's sibling parts normally use one
+convention. See `build_part_sort_key`.
+
 """
 
 from __future__ import annotations

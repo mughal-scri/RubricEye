@@ -31,7 +31,9 @@ export default function ProjectDetailPage() {
 
   const ready = Boolean(project?.template_map_confirmed && project?.question_bank_confirmed);
   const pendingSheets = useMemo(() => sheets.filter((sheet) => sheet.grading_status === "review_required").length, [sheets]);
-  const nextStep = !project?.template_map_confirmed
+  const nextStep = project?.rubric_source_mode === "studio" && !project.rubric_locked
+    ? { title: "Review rubric alignment before locking", body: "Confirm each Studio criterion against a canonical question or mark it not applicable before approval.", href: `/projects/${projectId}/rubric-alignment`, label: "Review alignment" }
+    : !project?.template_map_confirmed
     ? { title: "Review the template map before uploading", body: "The detected regions must be confirmed before answer sheets can be prepared.", href: `/projects/${projectId}/template-map`, label: "Review template map" }
     : !project.question_bank_confirmed
       ? { title: "Confirm the question bank before grading", body: "Review question numbers, marks, and key points so grading uses the intended criteria.", href: `/projects/${projectId}/question-bank`, label: "Review question bank" }
@@ -70,7 +72,7 @@ export default function ProjectDetailPage() {
           <Link to={`/projects/${projectId}/template-map`} className="btn btn-secondary"><Layers size={16} /> Template map</Link>
           <Link to={`/projects/${projectId}/question-bank`} className="btn btn-secondary"><ListChecks size={16} /> Question bank</Link>
           <Link to={`/projects/${projectId}/question-groups`} className="btn btn-secondary"><Sparkles size={16} /> Question groups</Link>
-          {project.rubric_source_mode === "studio" && <Link to={`/projects/${projectId}/rubric-studio`} className="btn btn-secondary"><Sparkles size={16} /> Rubric Studio</Link>}
+          {project.rubric_source_mode === "studio" && <><Link to={`/projects/${projectId}/rubric-studio`} className="btn btn-secondary"><Sparkles size={16} /> Rubric Studio</Link>{!project.rubric_locked && <Link to={`/projects/${projectId}/rubric-alignment`} className="btn btn-primary"><ListChecks size={16} /> Review alignment</Link>}</>}
           {project.rubric_download_url && <a href={fileUrl(project.rubric_download_url)} download="rubric.pdf" className="btn btn-secondary"><FileDown size={16} /> Download rubric</a>}
           {ready ? <Link to={`/projects/${projectId}/upload`} className="btn btn-primary"><Upload size={16} /> Upload answer sheet</Link> : <button type="button" className="btn btn-secondary" disabled title="Confirm the template map and question bank first"><Upload size={16} /> Upload locked</button>}
         </div>

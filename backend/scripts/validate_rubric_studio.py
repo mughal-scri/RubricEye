@@ -105,13 +105,21 @@ def main() -> int:
             assert generated_payload["generated_rubric_download_url"].endswith("rubric.pdf"), generated_payload
             assert_pdf(client, generated_payload["generated_rubric_download_url"], "Studio Lifecycle")
 
-        # Editing marks/text is enough; the examiner does not confirm every question separately.
         updated = client.patch(f"/projects/{project_id}/rubric-studio/2i", json={"marks_possible": 5, "key_points": "Edited examiner criterion."})
         assert updated.status_code == 200, updated.text
         reloaded = client.get(f"/projects/{project_id}/rubric-studio")
         assert reloaded.status_code == 200, reloaded.text
         assert reloaded.json()["criteria"][0]["section_label"] == "Section A", reloaded.text
         assert reloaded.json()["criteria"][0]["question_text"] == "Explain part i.", reloaded.text
+
+        blocked = client.post(f"/projects/{project_id}/rubric-studio/approve")
+        assert blocked.status_code == 409, blocked.text
+        for criterion in reloaded.json()["criteria"]:
+            aligned = client.put(
+                f"/projects/{project_id}/rubric-studio/alignment/{criterion['question_number']}",
+                json={"status": "linked", "linked_question_number": criterion["question_number"]},
+            )
+            assert aligned.status_code == 200, aligned.text
 
         approved = client.post(f"/projects/{project_id}/rubric-studio/approve")
         assert approved.status_code == 200, approved.text
@@ -149,7 +157,7 @@ def main() -> int:
         final_bank = client.get(f"/projects/{final_project['id']}/question-bank")
         assert final_bank.status_code == 200 and len(final_bank.json()["items"]) == 7, final_bank.text
 
-    print("Rubric Studio regression passed: no-key fallback, mocked generation, ordered editing, direct PDF export, approval without per-question confirmations, staged submission, and Question Bank persistence.")
+    print("Rubric Studio regression passed: no-key fallback, mocked generation, ordered editing, explicit alignment gating, direct PDF export, staged submission, and Question Bank persistence.")
     return 0
 
 

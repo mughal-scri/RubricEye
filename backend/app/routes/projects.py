@@ -212,7 +212,13 @@ async def create_project(
         if rubric_mode in {"upload", "text"}:
             _run_question_bank_extraction(db, project)
         else:
-            materialize_draft(project, studio_criteria or [], db, approved=True)
+            # A staged draft may lock only when its submitted criteria carry explicit
+            # canonical-link or not-applicable alignment decisions.
+            alignment_complete = bool(studio_criteria) and all(
+                criterion.get("alignment_status") in {"linked", "not_applicable"}
+                for criterion in studio_criteria
+            )
+            materialize_draft(project, studio_criteria or [], db, approved=alignment_complete)
     except Exception:  # noqa: BLE001
         LOGGER.exception("Question-bank extraction failed for project %s", project_id)
         db.rollback()

@@ -16,7 +16,8 @@ from app.services import storage
 from app.services.rubric_pdf import render_rubric_pdf
 from app.services.pdf_validation import read_validated_upload
 from app.services.rubric_studio import StudioGenerationResult, generate_draft, materialize_draft
-from app.services.question_grouping import question_sort_key
+from app.services.question_grouping import canonical_question_label, question_sort_key
+from app.services.question_bank_extractor import extract_question_bank
 from app.routes.projects import _run_question_bank_extraction
 
 router = APIRouter(prefix="/projects", tags=["rubric-studio"])
@@ -64,7 +65,24 @@ def _items(project_id: str, db: Session) -> list[QuestionBankItem]:
 
 
 def _criteria(items: list[QuestionBankItem]) -> list[RubricStudioCriterionResponse]:
-    return [RubricStudioCriterionResponse(id=item.id, question_number=item.question_number, marks_possible=item.marks_possible, key_points=item.key_points, section_label=item.section_label, question_text=item.question_text, rubric_provenance=item.rubric_provenance, rubric_confidence=item.rubric_confidence, rubric_reviewed=item.rubric_reviewed) for item in items]
+    return [RubricStudioCriterionResponse(id=item.id, question_number=item.question_number, marks_possible=item.marks_possible, key_points=item.key_points, section_label=item.section_label, question_text=item.question_text, rubric_provenance=item.rubric_provenance, rubric_confidence=item.rubric_confidence, rubric_reviewed=item.rubric_reviewed, alignment_question_number=item.alignment_question_number, alignment_status=item.alignment_status) for item in items]
+
+
+def _alignment_candidates(project: Project, items: list[QuestionBankItem]) -> list[dict]:
+    candidates: dict[str, dict] = {}
+    try:
+        extraction = extract_question_bank(project.question_paper_file_path)
+        for item in extraction.items:
+            key = canonical_question_label(item.question_number)
+            if key:
+                candidates[key] = {"question_number": key, "marks_possible": item.marks_possible, "question_text": None}
+    except Exception:
+        pass
+    if not candidates:
+        for item in items:
+            key = canonical_question_label(item.question_number)
+            candidates.setdefault(key, {"question_number": key, "marks_possible": item.marks_possible, "question_text": item.question_text})
+    return sorted(candidates.values(), key=lambda item: question_sort_key(item["question_number"], list(candidates)))
 
 
 def _response(project: Project, db: Session, warning: str | None = None) -> RubricStudioResponse:
@@ -77,6 +95,8 @@ def _response(project: Project, db: Session, warning: str | None = None) -> Rubr
         warning=warning,
         manual_upload_available=True,
         all_criteria_reviewed=bool(items) and all(item.rubric_reviewed for item in items),
+        all_alignment_reviewed=bool(items) and all(item.alignment_status in {"linked", "not_applicable"} for item in items),
+        alignment_candidates=_alignment_candidates(project, items),
         generated_rubric_download_url=(f"/files/projects/{project.id}/rubric.pdf" if Path(project.rubric_file_path).suffix.lower() == ".pdf" and Path(project.rubric_file_path).exists() else None),
     )
 
@@ -98,6 +118,8 @@ def _write_draft(project: Project, result: StudioGenerationResult, db: Session) 
             rubric_provenance=criterion["rubric_provenance"],
             rubric_confidence=criterion["rubric_confidence"],
             rubric_reviewed=False,
+            alignment_question_number=None,
+            alignment_status="unreviewed",
         ))
     project.rubric_studio_status = result.status
     project.rubric_locked = False
@@ -156,6 +178,27 @@ def update_rubric_criterion(project_id: str, question_number: str, payload: Rubr
     return _criteria([item])[0]
 
 
+@router.put("/{project_id}/rubric-studio/alignment/{question_number}", response_model=RubricStudioResponse)
+def update_rubric_alignment(project_id: str, question_number: str, payload: dict, db: Session = Depends(get_db)) -> RubricStudioResponse:
+    project = _project_or_404(project_id, db)
+    if project.rubric_source_mode != "studio" or project.rubric_locked:
+        raise HTTPException(status_code=409, detail="This rubric is not editable.")
+    item = db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id, QuestionBankItem.question_number == question_number).one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Rubric criterion not found.")
+    status = str(payload.get("status", "")).strip()
+    if status not in {"linked", "not_applicable", "unreviewed"}:
+        raise HTTPException(status_code=422, detail="Alignment status must be linked, not_applicable, or unreviewed.")
+    candidates = {candidate["question_number"] for candidate in _alignment_candidates(project, _items(project_id, db))}
+    linked = canonical_question_label(str(payload.get("linked_question_number") or "")) if status == "linked" else None
+    if status == "linked" and (not linked or linked not in candidates):
+        raise HTTPException(status_code=422, detail="Choose a canonical question key from the uploaded question paper.")
+    item.alignment_question_number = linked
+    item.alignment_status = status
+    db.commit()
+    return _response(project, db)
+
+
 @router.post("/{project_id}/rubric-studio/approve", response_model=RubricStudioResponse)
 def approve_rubric_studio(project_id: str, db: Session = Depends(get_db)) -> RubricStudioResponse:
     project = _project_or_404(project_id, db)
@@ -167,6 +210,9 @@ def approve_rubric_studio(project_id: str, db: Session = Depends(get_db)) -> Rub
     incomplete = [item.question_number for item in items if not item.key_points or item.marks_possible is None]
     if incomplete:
         raise HTTPException(status_code=409, detail=f"Every generated criterion needs marks and criteria text before approval: {', '.join(incomplete)}.")
+    unresolved_alignment = [item.question_number for item in items if item.alignment_status not in {"linked", "not_applicable"}]
+    if unresolved_alignment:
+        raise HTTPException(status_code=409, detail=f"Review the rubric alignment before approval: {', '.join(unresolved_alignment)}.")
     for item in items:
         item.rubric_reviewed = True
     project.rubric_locked = True

@@ -149,6 +149,9 @@ def main() -> int:
                 inferred = next(group for group in existing_groups if group["selection_type"] == "choose_n_of_m")
                 assert inferred["n_required"] == 5, inferred
                 assert set(inferred["question_numbers"]) == set(shuffled_question_numbers), inferred
+                confirmed = client.post(f"/projects/{project_id}/question-groups/{inferred['id']}/confirm")
+                assert confirmed.status_code == 200, confirmed.text
+                assert confirmed.json()["suggestion_status"] == "confirmed", confirmed.text
             else:
                 r = client.post(
                     f"/projects/{project_id}/question-groups",

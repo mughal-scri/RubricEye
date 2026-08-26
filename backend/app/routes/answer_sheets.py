@@ -244,7 +244,7 @@ def create_examiner_report(project_id: str, answer_sheet_id: str, db: Session = 
     if blockers:
         raise HTTPException(status_code=409, detail="Report cannot be generated until review is complete: " + "; ".join(blockers))
 
-    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
+    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id, QuestionGroup.suggestion_status == "confirmed").all()
     question_text_by_number = {
         item.question_number: item.question_text
         for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()

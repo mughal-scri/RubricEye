@@ -55,6 +55,9 @@ def _ensure_inferred_groups(project: Project, items: list[QuestionBankItem], db:
             question_numbers_json=json.dumps(flat),
             selection_units_json=json.dumps(suggestion.selection_units),
             n_required=suggestion.n_required,
+            suggestion_confidence=suggestion.confidence,
+            suggestion_evidence=suggestion.evidence,
+            suggestion_status="provisional",
         )
         db.add(group)
         assigned.update(flat)

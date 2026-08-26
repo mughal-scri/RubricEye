@@ -122,6 +122,8 @@ class QuestionBankItemResponse(BaseModel):
     rubric_provenance: str | None = None
     rubric_confidence: str | None = None
     rubric_reviewed: bool = False
+    alignment_question_number: str | None = None
+    alignment_status: str = "unreviewed"
 
     model_config = {"from_attributes": True}
 
@@ -154,6 +156,8 @@ class RubricStudioCriterionDraft(BaseModel):
     rubric_provenance: str | None = None
     rubric_confidence: str | None = None
     rubric_reviewed: bool = False
+    alignment_question_number: str | None = None
+    alignment_status: str = "unreviewed"
 
 
 class RubricStudioCriterionResponse(RubricStudioCriterionDraft):
@@ -176,6 +180,8 @@ class RubricStudioResponse(BaseModel):
     warning: str | None = None
     manual_upload_available: bool = True
     all_criteria_reviewed: bool = False
+    all_alignment_reviewed: bool = False
+    alignment_candidates: list[dict] = []
     generated_rubric_download_url: str | None = None
 
 
@@ -221,6 +227,14 @@ class QuestionGroupResponse(BaseModel):
     question_numbers: list[str]
     n_required: int | None
     selection_units: list[list[str]] = []
+    suggestion_confidence: str | None = None
+    suggestion_evidence: str | None = None
+    suggestion_status: str = "confirmed"
+
+
+class RubricAlignmentUpdate(BaseModel):
+    linked_question_number: str | None = None
+    status: str
 
 
 # ============================================================

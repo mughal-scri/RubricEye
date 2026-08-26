@@ -143,6 +143,10 @@ export function hardDeleteProject(projectId: string): Promise<void> {
   return request(`/projects/${projectId}/hard`, { method: "DELETE" });
 }
 
+export function retryTemplateMap(projectId: string): Promise<TemplateMapResponse> {
+  return request(`/projects/${projectId}/template-map/retry`, { method: "POST" });
+}
+
 export function getTemplateMap(projectId: string): Promise<TemplateMapResponse> {
   return request(`/projects/${projectId}/template-map`);
 }
@@ -204,6 +208,8 @@ export interface QuestionBankItem {
   rubric_provenance?: string | null;
   rubric_confidence?: "high" | "medium" | "low" | null;
   rubric_reviewed?: boolean;
+  alignment_question_number?: string | null;
+  alignment_status?: "unreviewed" | "linked" | "not_applicable";
 }
 
 export interface QuestionBankListResponse {
@@ -244,6 +250,8 @@ export interface RubricStudioResponse {
   warning: string | null;
   manual_upload_available: boolean;
   all_criteria_reviewed: boolean;
+  all_alignment_reviewed: boolean;
+  alignment_candidates: Array<{ question_number: string; marks_possible: number | null; question_text?: string | null }>;
   generated_rubric_download_url?: string | null;
 }
 
@@ -337,6 +345,14 @@ export function updateRubricStudioCriterion(projectId: string, questionNumber: s
   });
 }
 
+export function updateRubricAlignment(projectId: string, questionNumber: string, payload: { linked_question_number?: string | null; status: "linked" | "not_applicable" | "unreviewed" }): Promise<RubricStudioResponse> {
+  return request(`/projects/${projectId}/rubric-studio/alignment/${encodeURIComponent(questionNumber)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+}
+
 export function approveRubricStudio(projectId: string): Promise<RubricStudioResponse> {
   return request(`/projects/${projectId}/rubric-studio/approve`, { method: "POST" });
 }
@@ -363,6 +379,9 @@ export interface QuestionGroup {
   question_numbers: string[];
   n_required: number | null;
   selection_units?: string[][];
+  suggestion_confidence?: "high" | "medium" | "low" | null;
+  suggestion_evidence?: string | null;
+  suggestion_status: "provisional" | "confirmed";
 }
 
 export interface QuestionGroupCreate {
@@ -386,6 +405,10 @@ export function createQuestionGroup(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+export function confirmQuestionGroup(projectId: string, groupId: string): Promise<QuestionGroup> {
+  return request(`/projects/${projectId}/question-groups/${groupId}/confirm`, { method: "POST" });
 }
 
 export function deleteQuestionGroup(projectId: string, groupId: string): Promise<void> {

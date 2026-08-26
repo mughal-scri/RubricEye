@@ -32,14 +32,20 @@ def identity_page_indexes(pdf_path: str, rendered_page_paths: list[str] | None =
     except Exception:
         return []
     indexes: set[int] = set()
+    has_text_layer: dict[int, bool] = {}
     try:
         for index, page in enumerate(document):
-            if looks_like_identity_text(page.get_text("text")):
-                indexes.add(index)
+            txt = page.get_text("text")
+            if txt and txt.strip():
+                has_text_layer[index] = True
+                if looks_like_identity_text(txt):
+                    indexes.add(index)
     finally:
         document.close()
 
     for index, image_path in enumerate(rendered_page_paths or []):
+        if index in indexes or has_text_layer.get(index):
+            continue
         detected, _reason = looks_like_identity_cover_page(image_path)
         if detected:
             indexes.add(index)
@@ -53,9 +59,12 @@ def looks_like_identity_cover_page(image_path: str) -> tuple[bool, str]:
 
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, dp=1.2, minDist=12, param1=80, param2=18, minRadius=4, maxRadius=18)
-    circle_count = 0 if circles is None else circles.shape[1]
-    dense_bubble_grid = circle_count >= 40
+    circle_count = 0
+    for param2 in (22, 20, 18):
+        circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, dp=1.2, minDist=28, param1=80, param2=param2, minRadius=6, maxRadius=24)
+        if circles is not None:
+            circle_count = max(circle_count, circles.shape[1])
+    dense_bubble_grid = circle_count >= 60
 
     keyword_hits: set[str] = set()
     try:
@@ -66,8 +75,8 @@ def looks_like_identity_cover_page(image_path: str) -> tuple[bool, str]:
     except Exception:
         pass
 
-    if dense_bubble_grid and keyword_hits:
-        return True, "Detected identity-style cover page (bubble grid + identity keywords)."
-    if len(keyword_hits) >= 2 and circle_count >= 10:
+    if dense_bubble_grid:
+        return True, "Detected identity-style cover page (bubble grid)."
+    if len(keyword_hits) >= 2 and circle_count >= 20:
         return True, "Detected likely identity cover page."
     return False, ""

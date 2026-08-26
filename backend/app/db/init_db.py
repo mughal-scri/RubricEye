@@ -47,12 +47,22 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN section_label VARCHAR(255)"))
             if "question_text" not in question_cols:
                 conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN question_text TEXT"))
+            if "alignment_question_number" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN alignment_question_number VARCHAR(64)"))
+            if "alignment_status" not in question_cols:
+                conn.execute(text("ALTER TABLE question_bank_items ADD COLUMN alignment_status VARCHAR(24) NOT NULL DEFAULT 'unreviewed'"))
 
     if "question_groups" in tables:
         group_cols = {col["name"] for col in inspector.get_columns("question_groups")}
         with engine.begin() as conn:
             if "selection_units_json" not in group_cols:
                 conn.execute(text("ALTER TABLE question_groups ADD COLUMN selection_units_json TEXT NOT NULL DEFAULT '[]'"))
+            if "suggestion_confidence" not in group_cols:
+                conn.execute(text("ALTER TABLE question_groups ADD COLUMN suggestion_confidence VARCHAR(16)"))
+            if "suggestion_evidence" not in group_cols:
+                conn.execute(text("ALTER TABLE question_groups ADD COLUMN suggestion_evidence TEXT"))
+            if "suggestion_status" not in group_cols:
+                conn.execute(text("ALTER TABLE question_groups ADD COLUMN suggestion_status VARCHAR(16) NOT NULL DEFAULT 'confirmed'"))
 
     if "answer_sheets" in tables:
         sheet_cols = {col["name"] for col in inspector.get_columns("answer_sheets")}
