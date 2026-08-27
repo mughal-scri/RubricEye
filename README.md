@@ -1,100 +1,125 @@
 # RubricEye
 
-A vision-native AI grading assistant for structured, handwritten exam answer booklets — built to work with **any institution's answer sheet format**, not tied to a specific exam board.
+RubricEye is a privacy-conscious, human-in-the-loop grading prototype for handwritten exam booklets. Its primary analysis uses native vision-language models to understand page layout, handwriting, question structure, and answer content. OCR and deterministic checks complement that visual analysis, while an examiner remains in control of uncertain decisions.
 
-RubricEye reads a scanned answer booklet directly (text *and* diagrams, in a single pass), drafts a rubric-based score with reasoning per question, and flags anything genuinely uncertain for a human examiner's final confirmation. It never grades autonomously — human sign-off is a fixed part of the workflow, not an optional feature.
+## What it does
 
-## Why This Exists
+- Ingests scanned answer sheets and question papers.
+- Detects pages, question regions, alignment, overflow, and booklet correspondence.
+- Derives question groups and choice rules from the uploaded document rather than a fixed paper template.
+- Uses vision-language models to inspect handwritten answers and their visual context, including crossed-out work and diagrams.
+- Uses local ink-density checks to identify blank, attempted, and crossed-out answers before model grading.
+- Grades against a locked rubric and produces examiner-reviewable results.
+- Keeps identity detection, alignment, crop adjustments, and other low-confidence decisions in an explicit review path.
 
-Manual grading of handwritten exams is slow and inconsistent — the same answer quality can score differently depending on who checks it. RubricEye targets that consistency problem at the institutional level (exam boards, schools) rather than trying to replace examiners.
+RubricEye is an assistive tool: model output is evidence for an examiner, not an autonomous final decision.
 
-## Core Design Principles
+## Typical workflow
 
-- **Human-in-the-loop, always.** The AI drafts a score; a human examiner confirms it. No result is final without that step.
-- **Board-agnostic.** A project’s answer-region layout is semantically derived from the uploaded blank booklet’s own PDF anchors/vector geometry, with a vision fallback for flattened or scanned booklets; it is not hardcoded to one institution’s format.
-- **Rubric integrity.** Once a project is created, its rubric is locked — no one can change grading criteria mid-batch.
-- **Leak-proof by design.** No identity-bearing content is ever sent to the external AI provider.
-- **Cost-conscious.** Grading is batched per question (not per page), keeping API usage realistic at real-world volume.
-- **Format-fair judgment.** A correct answer expressed as a diagram or flowchart is scored on concept, not penalized for not being prose.
+1. Start the local backend and frontend.
+2. Create or select a rubric/question paper.
+3. Upload an answer booklet.
+4. Review page alignment, question mapping, overflow/crop warnings, and inferred choice groups.
+5. Confirm or correct any flagged item.
+6. Run grading and inspect the report, including the effective denominator after first-N or choice rules.
 
-## Status
+## Architecture
 
-**Core infrastructure and Phase 2 grading integration are implemented.** The current build also includes semantic template derivation from each uploaded booklet’s own PDF anchors and vector geometry, a vision fallback contract for arbitrary layouts, learned front-matter/identity-page exclusion, validated scan-to-template feature registration, overflow-aware crops, confidence gating, alignment repairs, score-bound validation, question-group validation, project-creation failure recording, soft-delete/Trash recovery, explicit `review_required` sheet status, and evidence-first human review.
-
-The follow-up workflow now distinguishes raw extracted marks from the effective candidate maximum for optional sections, persists compound choice units, locks blank and beyond-limit answers as local decisions, keeps ambiguous ink states examiner-resolvable, and produces persistent downloadable examiner-report PDFs after confirmation. Project creation is staged as question paper → blank booklet → rubric source → confirmation, with official PDF, pasted text, and Rubric Studio options. Ordinary booklet review presents a page-by-page label summary rather than coordinate boundaries. The optional-section parser is document-derived rather than tied to a literal section name and accepts varied exam wording. Question Bank and Rubric Studio criteria editors expand to their content instead of remaining fixed-height.
-
-**Phase C Rubric Studio is implemented as an explicit opt-in path and as a standalone worker.** It makes one user-triggered provider call from the selected question paper, uses text first and page-image fallback for scanned papers, shows provenance and confidence for every provisional criterion, lets the examiner edit the ordered criteria without per-question confirmation checkboxes, exports the edited result as a structured PDF, and locks only after the complete draft is saved. Official PDF and pasted-text paths remain available whenever generation is unavailable or partial.
-
-The remaining intentionally separate validation is a controlled end-to-end run against real handwritten answer booklets using a provider key. Synthetic and mocked validation are useful regression checks, but they do not replace inspecting real template maps, segmentation crops, ink-density ratios, overflow signals, and grading quality. The Studio model is configurable through `RUBRICEYE_STUDIO_MODEL`; no key or provider call is required for local validation.
-
-## Documentation
-
-Start here, in this order:
-
-| File | Purpose |
-|---|---|
-| `RubricEye_PRD.md` | What the product does and why — functional & non-functional requirements |
-| `RubricEye_Architecture.md` | System design, data flow, component diagram |
-| `RubricEye_TechDoc.md` | Technical spec — data models, API design, storage layout |
-| `RubricEye_Roadmap.md` | Build phases, in order, with concrete checklist items |
-| `RubricEye_FutureAdditions.md` | Deliberately deferred features (multi-user, hosted deployment, branding) — not missing, just not now |
-
-## Tech Stack
-
-- **Frontend:** Electron + React
-- **Backend:** Python + FastAPI
-- **Storage:** SQLite (WAL mode) + local filesystem
-- **PDF processing:** PyMuPDF
-- **Grading engine:** Alibaba Cloud Qwen-VL-Max (DashScope, OpenAI-compatible API)
-- **Studio vision engine:** Alibaba Cloud Model Studio `qwen3.7-plus` by default, configured independently so graphical/scanned question-paper drafting can use multimodal input without changing the grading model.
-
-## Getting Started
-
-```bash
-git clone <repo-url>
-cd rubriceye
-
-# Backend dependencies
-sudo uv pip install --system -r backend/requirements.txt
-
-# Frontend
-cd frontend
-npm ci --no-audit --no-fund
-npm run build
-
-# Only for intentional real-model validation; never commit the key
-export DASHSCOPE_API_KEY="your_key_here"
+```text
+backend/   FastAPI API, document parsing, alignment, grading, reports
+frontend/  React + TypeScript examiner interface
+scripts/   Local development and regression helpers
+data/      Runtime data (configure a separate location for deployments)
 ```
 
-See `RubricEye_TechDoc.md` for the full API and data model before writing backend routes — the schema is deliberately fixed up front (rubric locking, region maps, human-confirmation fields) and shouldn't drift from it without updating the doc first.
+The application code is intentionally document-driven. Question numbers, sections, part conventions, coordinates, and totals are read from the uploaded paper/rubric; they are not embedded for one test subject.
+
+## Requirements
+
+- Python 3.11+ (with a virtual environment)
+- Node.js 18+ and npm
+- Tesseract OCR available on `PATH` (used as a supporting extraction and validation tool)
+- Optional: a DashScope/Qwen API key for native vision-language extraction or grading
+
+## Installation
+
+```bash
+git clone https://github.com/mughal-scri/RubricEye.git
+cd RubricEye
+
+python3 -m venv backend/venv
+backend/venv/bin/pip install -r backend/requirements.txt
+
+cd frontend
+npm ci
+npm run build
+cd ..
+```
+
+## Configuration
+
+Copy the example environment file if present and set only the values needed for your deployment. Common settings are:
+
+```text
+RUBRICEYE_DATA_DIR=/path/to/private/runtime-data
+DASHSCOPE_API_KEY=your-key
+RUBRICEYE_GRADING_MODEL=qwen-vl-max
+RUBRICEYE_STUDIO_MODEL=qwen-vl-max
+```
+
+Keep API keys, uploaded papers, answer sheets, and generated reports outside version control. Never commit secrets to the repository.
+
+## Run locally
+
+From the repository root:
+
+```bash
+./scripts/run_dev.sh
+```
+
+The helper starts the API and web app using the local environment. Use `./scripts/run_dev.sh --electron` when testing the desktop shell. The default development ports are 8765 (API) and 5173 (frontend).
 
 ## Testing
 
-Run the no-cost regression loops from the repository root:
+Use the project virtual environment for backend checks:
 
 ```bash
-PYTHONPATH=backend python3 backend/scripts/validate_hardening_local.py
-PYTHONPATH=backend python3 backend/scripts/validate_unlock_and_delete.py
-PYTHONPATH=backend python3 backend/scripts/validate_roman_numeral_parts.py
-PYTHONPATH=backend python3 backend/scripts/validate_real_template.py
-PYTHONPATH=backend python3 backend/scripts/validate_real_segmentation.py
-PYTHONPATH=backend python3 backend/scripts/validate_real_original_upload.py
-PYTHONPATH=backend python3 backend/scripts/validate_identity_detection.py
-PYTHONPATH=backend python3 backend/scripts/validate_paper_structure.py
-PYTHONPATH=backend python3 backend/scripts/validate_generic_paper_structure.py
-PYTHONPATH=backend python3 backend/scripts/validate_question_bank_effective_api.py
-PYTHONPATH=backend python3 backend/scripts/validate_rubric_studio.py
-PYTHONPATH=backend python3 backend/scripts/validate_rubric_sources.py
-PYTHONPATH=backend python3 backend/scripts/validate_frontend_source_guards.py
-(cd frontend && npx tsc --noEmit && npm run build)
-PYTHONPATH=backend python3 backend/scripts/validate_unattempted_lock.py
-PYTHONPATH=backend python3 backend/scripts/validate_report_lifecycle.py
-PYTHONPATH=backend python3 backend/scripts/validate_phase1.py
-(cd frontend && npm ci --no-audit --no-fund && npx tsc --noEmit && npm run build)
+backend/venv/bin/python -m compileall backend/app
+backend/venv/bin/python backend/scripts/validate_hardening_local.py
 ```
 
-These loops cover backend hardening without billed model calls. The real-template loop validates the supplied blank booklet’s semantic labels and 11 answer regions. Set `RUBRICEYE_REAL_FIXTURES_DIR` to the directory containing the blank booklet, question paper, rubric, and answer books before running the portable real-material loops. The real-segmentation loop strips identity covers and checks all three supplied answer books for mapped region coverage, preview generation, and overflow signals; it does not grade. The original-upload loop uploads the original PDFs unchanged and verifies that identity/front-matter pages are excluded locally while page indexes remain aligned; it also does not grade. The identity-detection loop verifies a raster-only cover is excluded while a normal question containing the word “Name” is not falsely excluded. `backend/scripts/validate_phase2.py` intentionally uses real Qwen-VL-Max calls and should be run only after these local loops pass and a real API test is desired. Before submission, run the complete workflow against the three sanitized handwritten booklets and record the results.
+Useful focused regressions include the crop/CRUD, reconciliation, identity-detection, question-bank, first-N, grading-integrity, and report-lifecycle suites under `backend/tests` and `scripts/`. Frontend checks can be run with:
 
-## License
+```bash
+cd frontend
+npx tsc --noEmit
+npm run build
+```
 
-TBD.
+Some validation helpers invoke paid live-model APIs. Run those only deliberately and with an appropriate budget; the default local suite should remain no-cost and deterministic.
+
+## Privacy and safety
+
+- Runtime files can remain on the local machine.
+- Identity signals are excluded from grading prompts and are not sent as unsolicited telemetry.
+- API credentials are read from environment variables, not source files.
+- Rubrics are locked and changes, confirmations, and corrections are reviewable.
+- Alignment, overflow, mapping, and low-confidence attempted-status decisions can be confirmed by an examiner before grading.
+
+## Current limitations
+
+This is a working prototype. Vision-model results depend on scan quality, model availability, and prompt/provider behavior; supporting OCR quality also depends on the local Tesseract installation. Model-assisted extraction or grading requires network access and may incur provider charges. Authentication, multi-tenant permissions, and production deployment hardening are not included by default.
+
+## License and permitted use
+
+The repository is publicly readable, but it is **not open source**. Review and evaluation are permitted under the accompanying [RubricEye Source-Available License](LICENSE). Copying, mirroring, modifying, redistributing, incorporating the code into another product, or commercial/production use requires prior written permission from the copyright holder. Approved use must include attribution.
+
+GitHub can technically allow cloning, forking, or automated retrieval of a public repository; no license can prevent those downloads. The license controls what recipients may legally do with the code after obtaining it.
+
+## Contact
+
+For permission requests, security reports, or collaboration proposals, contact the repository owner through the public contact channel on the author's GitHub profile.
+
+## Project status
+
+RubricEye is a prototype intended for demonstrations, research, and carefully supervised classroom pilots. Contributions or reuse are welcome only with the copyright holder's written approval under the accompanying license.

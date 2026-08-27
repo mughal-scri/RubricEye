@@ -1,21 +1,84 @@
-MIT License
+RubricEye Source-Available License
+Version 1.0 - 2026
 
 Copyright (c) 2026 Abdullah Mughal
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+This license governs the RubricEye source code and accompanying materials (the
+"Software"). The Software is source-available, not open source. Open-source
+rights are not granted by publication on a public hosting service.
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+1. Definitions
+
+"Copyright Holder" means Abdullah Mughal, or a person authorised by him in
+writing. "Written Permission" means a permission signed or sent by the
+Copyright Holder that identifies the permitted Software and use.
+
+2. Permission to inspect
+
+Subject to this license, anyone may access and read the Software, run it for
+private evaluation, study its design, perform security review, and quote brief
+portions in a review or academic discussion. This permission is personal,
+non-exclusive, non-transferable, revocable, and does not permit redistribution.
+
+3. Restricted activities
+
+Without prior Written Permission, you must not:
+
+* copy, reproduce, mirror, archive, or publish the Software or a substantial
+  portion of it;
+* modify, adapt, translate, transform, or create derivative works;
+* distribute, sublicense, sell, rent, lease, host, or make the Software
+  available to another person or service;
+* incorporate any portion into a product, service, hosted application,
+  competing project, dataset, or machine-learning model;
+* use the Software in production, commercially, for revenue-generating work,
+  or on behalf of a third party; or
+* remove or obscure this license or existing copyright notices.
+
+These restrictions apply whether the activity is performed manually or by an
+automated crawler, bot, scraper, code-generation system, or model.
+
+4. Approved use and attribution
+
+The Copyright Holder may grant Written Permission for additional uses. Unless
+the permission says otherwise, every approved copy or substantial inclusion
+must display this notice in its documentation, about page, or credits:
+
+    Uses RubricEye by Abdullah Mughal - https://github.com/mughal-scri/RubricEye
+
+Permission for one use does not grant permission for other uses or future
+versions.
+
+5. Third-party material
+
+Components that belong to third parties remain subject to their own licenses.
+This license applies only to material authored or controlled by the Copyright
+Holder.
+
+6. Termination
+
+This license terminates automatically if you breach it. On termination, you
+must stop the unauthorised use and delete unauthorised copies under your
+control. The Copyright Holder may pursue any remedies available under law.
+
+7. Disclaimer and limitation
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+IMPLIED, INCLUDING WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+PURPOSE, AND NON-INFRINGEMENT. TO THE MAXIMUM EXTENT PERMITTED BY LAW, THE
+COPYRIGHT HOLDER IS NOT LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY
+ARISING FROM THE SOFTWARE OR ITS USE.
+
+8. Trademarks
+
+No trademark, trade name, or branding rights are granted by this license.
+
+9. Contact
+
+Request permission through the public contact channel maintained by the
+Copyright Holder on the RubricEye repository or author profile.
+
+10. Severability
+
+If any provision is held unenforceable, it will be enforced to the maximum
+extent permitted and the remaining provisions will remain in effect.
