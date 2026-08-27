@@ -34,6 +34,28 @@ data/      Runtime data (configure a separate location for deployments)
 
 The application code is intentionally document-driven. Question numbers, sections, part conventions, coordinates, and totals are read from the uploaded paper/rubric; they are not embedded for one test subject.
 
+## Technology stack
+
+- **Desktop UI:** Electron with React 19, React Router, Lucide icons, and TypeScript.
+- **Local API:** Python with FastAPI.
+- **Metadata:** SQLite in WAL mode; uploaded PDFs, page images, rubrics, and reports remain in the local filesystem.
+- **PDF processing:** PyMuPDF (`fitz`) preserves page order and renders PDF pages to images without requiring Poppler.
+- **Document understanding:** native multimodal Qwen models through Alibaba Cloud DashScope/OpenAI-compatible APIs, with local OCR and geometric analysis used where appropriate.
+- **Frontend tooling:** Vite and the existing lightweight CSS design system; no component-library migration is required.
+
+The default model settings are capability-specific: `qwen-vl-max` is used for answer grading, while Rubric Studio defaults to `qwen3.7-plus` for question-paper understanding and rubric drafting.
+
+## How processing works
+
+1. A project stores its rubric, question paper, and blank answer booklet, then locks the rubric.
+2. The blank booklet is analyzed once: text/vector extraction and geometry are attempted first, with a vision fallback for scanned or irregular layouts.
+3. The candidate template map is shown to the examiner for confirmation or crop adjustment before it is reused.
+4. Each answer PDF is rendered in order, aligned to that project’s structural template, and segmented into question regions. Identity/front-matter pages are excluded locally.
+5. Ink-density checks identify blank, attempted, crossed-out, or ambiguous regions. For choice groups, only the first N attempted units are sent for grading; ambiguous cases remain examiner-reviewable.
+6. Vision grading receives the relevant question text/image and its cropped answer regions, one question at a time. Draft scores, rationale, flags, and confidence are persisted for human confirmation.
+
+Projects are isolated by ID, and files are kept separate from SQLite metadata so they remain independently recoverable. The current app is local-first; hosted deployment, authentication, multi-user access, audit trails, encryption-at-rest, and scale-out queues are deliberate future additions.
+
 ## Requirements
 
 - Python 3.11+ (with a virtual environment)
@@ -64,7 +86,7 @@ Copy the example environment file if present and set only the values needed for 
 RUBRICEYE_DATA_DIR=/path/to/private/runtime-data
 DASHSCOPE_API_KEY=your-key
 RUBRICEYE_GRADING_MODEL=qwen-vl-max
-RUBRICEYE_STUDIO_MODEL=qwen-vl-max
+RUBRICEYE_STUDIO_MODEL=qwen3.7-plus
 ```
 
 Keep API keys, uploaded papers, answer sheets, and generated reports outside version control. Never commit secrets to the repository.
@@ -88,7 +110,7 @@ backend/venv/bin/python -m compileall backend/app
 backend/venv/bin/python backend/scripts/validate_hardening_local.py
 ```
 
-Useful focused regressions include the crop/CRUD, reconciliation, identity-detection, question-bank, first-N, grading-integrity, and report-lifecycle suites under `backend/tests` and `scripts/`. Frontend checks can be run with:
+Useful focused regressions include the crop/CRUD, reconciliation, identity-detection, question-bank, first-N, grading-integrity, and report-lifecycle validation scripts under `backend/scripts`. The repository also includes reusable end-to-end fixtures in [`TestData/`](TestData/). Frontend checks can be run with:
 
 ```bash
 cd frontend

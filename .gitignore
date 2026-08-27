@@ -62,13 +62,14 @@ rubriceye_data/
 *.sqlite
 *.sqlite3
 
-# Blank booklets, question papers, and answer sheets uploaded during
-# local testing — these may contain real handwriting/test data and
-# should never be pushed to a shared repo
+# Local upload workspace. Keep ad-hoc uploads private, but publish the
+# curated TestData fixtures so new users can run the project end to end.
 /uploads/
 /test_data/
 *.pdf
 !docs/**/*.pdf
+!TestData/
+!TestData/**/*.pdf
 
 # ============================
 # OS / Editor cruft
