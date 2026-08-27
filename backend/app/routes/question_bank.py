@@ -7,10 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import Project, QuestionBankItem, QuestionGroup
+from app.db.models import Project, QuestionBankItem, QuestionGroup, TemplateMapPage
 from app.schemas.models import QuestionBankConfirmResponse, QuestionBankItemResponse, QuestionBankItemUpdate, QuestionBankListResponse
 from app.services.paper_structure import calculate_structure, infer_group_suggestions, refresh_project_structure
 from app.services.question_bank_extractor import find_stated_total
+from app.services.question_grouping import canonical_question_label, resolve_region_keys_for_question
 
 router = APIRouter(prefix="/projects", tags=["question-bank"])
 
@@ -35,6 +36,19 @@ def _group_dicts(project_id: str, db: Session) -> list[dict]:
         }
         for group in groups
     ]
+
+
+def _confirmed_template_region_keys(project_id: str, db: Session) -> list[str]:
+    pages = db.query(TemplateMapPage).filter(TemplateMapPage.project_id == project_id).all()
+    keys: list[str] = []
+    for page in pages:
+        for region in json.loads(page.regions_json or "[]"):
+            question_number = str(region.get("question_number") or "").strip()
+            if not question_number:
+                continue
+            part_label = str(region.get("part_label") or "").strip()
+            keys.append(canonical_question_label(f"{question_number}{part_label}"))
+    return sorted(set(keys))
 
 
 def _ensure_inferred_groups(project: Project, items: list[QuestionBankItem], db: Session) -> None:
@@ -127,6 +141,24 @@ def confirm_question_bank(project_id: str, db: Session = Depends(get_db)) -> Que
     items = db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
     if not items:
         raise HTTPException(status_code=400, detail="Cannot confirm an empty question bank.")
+
+    if project.template_map_confirmed:
+        region_map_keys = _confirmed_template_region_keys(project_id, db)
+        unmatched = [
+            item.question_number
+            for item in items
+            if not resolve_region_keys_for_question(item.question_number, region_map_keys)
+        ]
+        if unmatched:
+            labels = ", ".join(unmatched)
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Question Bank confirmation blocked. Unmatched labels: "
+                    f"{labels}. These labels do not match any region in your confirmed template map. "
+                    "Check the spelling/numbering against the actual booklet."
+                ),
+            )
 
     _ensure_inferred_groups(project, items, db)
     structure = refresh_project_structure(project, db)

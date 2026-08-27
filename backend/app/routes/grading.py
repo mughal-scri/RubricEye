@@ -34,7 +34,7 @@ def _get_project_or_404(project_id: str, db: Session) -> Project:
 
 def _get_sheet_or_404(project_id: str, answer_sheet_id: str, db: Session) -> AnswerSheet:
     sheet = db.get(AnswerSheet, answer_sheet_id)
-    if not sheet or sheet.project_id != project_id:
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Answer sheet not found.")
     return sheet
 

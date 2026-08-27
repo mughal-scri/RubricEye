@@ -64,6 +64,7 @@ export interface AnswerSheetSummary {
   project_id: string;
   roll_number: string;
   uploaded_at: string;
+  deleted_at?: string | null;
   page_count: number;
   grading_status: string;
   report_ready?: boolean;
@@ -172,6 +173,36 @@ export function unlockTemplateMap(projectId: string): Promise<TemplateMapRespons
 
 export function listAnswerSheets(projectId: string): Promise<AnswerSheetSummary[]> {
   return request(`/projects/${projectId}/answer-sheets`);
+}
+
+export function listDeletedAnswerSheets(projectId: string): Promise<AnswerSheetSummary[]> {
+  return request(`/projects/${projectId}/answer-sheets/trash`);
+}
+
+export function deleteAnswerSheet(projectId: string, sheetId: string): Promise<void> {
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}`, { method: "DELETE" });
+}
+
+export function restoreAnswerSheet(projectId: string, sheetId: string): Promise<AnswerSheetSummary> {
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}/restore`, { method: "POST" });
+}
+
+export function hardDeleteAnswerSheet(projectId: string, sheetId: string): Promise<void> {
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}/permanent`, { method: "DELETE" });
+}
+
+export function updateAnswerSheetRegion(
+  projectId: string,
+  sheetId: string,
+  questionKey: string,
+  bbox: number[],
+  pageIndex?: number
+): Promise<AnswerSheetDetail> {
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}/regions/${encodeURIComponent(questionKey)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ bbox, ...(pageIndex === undefined ? {} : { page_index: pageIndex }) }),
+  });
 }
 
 export function getAnswerSheet(projectId: string, sheetId: string): Promise<AnswerSheetDetail> {

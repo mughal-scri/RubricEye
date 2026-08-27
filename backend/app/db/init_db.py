@@ -75,4 +75,6 @@ def init_db() -> None:
                 conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN report_generated_at DATETIME"))
             if "completed_at" not in sheet_cols:
                 conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN completed_at DATETIME"))
+            if "deleted_at" not in sheet_cols:
+                conn.execute(text("ALTER TABLE answer_sheets ADD COLUMN deleted_at DATETIME"))
 

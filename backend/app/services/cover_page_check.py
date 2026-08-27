@@ -64,19 +64,39 @@ def looks_like_identity_cover_page(image_path: str) -> tuple[bool, str]:
         circles = cv2.HoughCircles(blurred, cv2.HOUGH_GRADIENT, dp=1.2, minDist=28, param1=80, param2=param2, minRadius=6, maxRadius=24)
         if circles is not None:
             circle_count = max(circle_count, circles.shape[1])
+    # Hough circles also detects letter loops, answer-page marks, and border noise.
+    # Treat the grid as identity evidence only when OCR finds multiple identity fields.
     dense_bubble_grid = circle_count >= 60
 
     keyword_hits: set[str] = set()
+    ocr_error = None
+    ocr_tokens = 0
     try:
         data = pytesseract.image_to_data(image, output_type=Output.DICT)
         for text in data.get("text", []):
             if text:
+                ocr_tokens += 1
                 keyword_hits.update(match.group(1).lower() for match in IDENTITY_KEYWORDS.finditer(text))
+    except Exception as exc:
+        ocr_error = type(exc).__name__ + ":" + str(exc)[:160]
+
+    detected = False
+    reason = ""
+    branch = "none"
+    if dense_bubble_grid and len(keyword_hits) >= 2:
+        detected, reason, branch = True, "Detected identity-style cover page (identity fields and bubble grid).", "grid+keywords"
+    elif len(keyword_hits) >= 2 and circle_count >= 20:
+        detected, reason, branch = True, "Detected likely identity cover page.", "keywords+circles"
+    # #region agent log
+    try:
+        import json, time, urllib.request
+        _payload = {"sessionId":"504238","hypothesisId":"A,B,C,D","location":"cover_page_check.py:looks_like_identity_cover_page","message":"identity cover signals","data":{"circle_count":int(circle_count),"dense_bubble_grid":bool(dense_bubble_grid),"keyword_hits":sorted(keyword_hits),"keyword_n":len(keyword_hits),"ocr_error":ocr_error,"ocr_tokens":ocr_tokens,"branch":branch,"detected":detected},"timestamp":int(time.time()*1000),"runId":"pre-fix"}
+        _line = json.dumps(_payload) + "\n"
+        open("/media/abdullahmughal/b74a1ef7-556e-41b4-9ad8-72e96d04151d/RubricEye/.cursor/debug-504238.log","a").write(_line)
+        urllib.request.urlopen(urllib.request.Request("http://127.0.0.1:7606/ingest/3c44513b-7252-4c79-a638-4a12d36de582", data=_line.encode(), headers={"Content-Type":"application/json","X-Debug-Session-Id":"504238"}), timeout=1)
     except Exception:
         pass
-
-    if dense_bubble_grid:
-        return True, "Detected identity-style cover page (bubble grid)."
-    if len(keyword_hits) >= 2 and circle_count >= 20:
-        return True, "Detected likely identity cover page."
+    # #endregion
+    if detected:
+        return True, reason
     return False, ""

@@ -91,6 +91,7 @@ class AnswerSheetSummary(BaseModel):
     project_id: str
     roll_number: str
     uploaded_at: datetime
+    deleted_at: datetime | None = None
     page_count: int
     grading_status: str = "not_graded"
     report_ready: bool = False
@@ -104,6 +105,11 @@ class AnswerSheetDetail(AnswerSheetSummary):
     page_image_urls: list[str]
     question_region_map: dict[str, list[RegionRef]]
     region_preview_urls: dict[str, list[str]]
+
+
+class AnswerSheetRegionUpdate(BaseModel):
+    bbox: list[int] = Field(min_length=4, max_length=4)
+    page_index: int | None = Field(default=None, ge=0)
 
 
 # ============================================================

@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 import shutil
 import uuid
+
+import cv2
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -10,13 +12,14 @@ from sqlalchemy.orm import Session
 
 from app.db.database import get_db
 from app.db.models import AnswerSheet, GradingResult, Project, QuestionBankItem, QuestionGroup
-from app.schemas.models import AnswerSheetDetail, AnswerSheetSummary, RegionRef, ReportResponse
+from app.schemas.models import AnswerSheetDetail, AnswerSheetRegionUpdate, AnswerSheetSummary, RegionRef, ReportResponse
 from app.services import storage
 from app.services.pdf_validation import read_validated_upload
 from app.services.cover_page_check import identity_page_indexes
 from app.services.pdf_pipeline import pdf_to_ordered_images
-from app.services.segmentation import build_question_region_map, load_template_map_pages, safe_region_filename_key
+from app.services.segmentation import _clamp_bbox, _has_overflow, build_question_region_map, load_template_map_pages, safe_region_filename_key
 from app.services.page_correspondence import compare_page_labels
+from app.services.question_grouping import resolve_region_keys_for_question
 from app.services.reporting import generate_report, report_blockers
 
 router = APIRouter(prefix="/projects", tags=["answer-sheets"])
@@ -42,6 +45,7 @@ def _sheet_to_summary(sheet: AnswerSheet) -> AnswerSheetSummary:
         project_id=sheet.project_id,
         roll_number=sheet.roll_number,
         uploaded_at=sheet.uploaded_at,
+        deleted_at=sheet.deleted_at,
         page_count=len(page_paths),
         grading_status=sheet.grading_status,
         report_ready=bool(sheet.report_path),
@@ -84,6 +88,7 @@ def _sheet_to_detail(sheet: AnswerSheet) -> AnswerSheetDetail:
         project_id=sheet.project_id,
         roll_number=sheet.roll_number,
         uploaded_at=sheet.uploaded_at,
+        deleted_at=sheet.deleted_at,
         page_count=len(page_paths),
         grading_status=sheet.grading_status,
         report_ready=bool(sheet.report_path),
@@ -103,8 +108,20 @@ def list_answer_sheets(project_id: str, db: Session = Depends(get_db)) -> list[A
     _get_project_or_404(project_id, db)
     sheets = (
         db.query(AnswerSheet)
-        .filter(AnswerSheet.project_id == project_id)
+        .filter(AnswerSheet.project_id == project_id, AnswerSheet.deleted_at.is_(None))
         .order_by(AnswerSheet.uploaded_at.desc())
+        .all()
+    )
+    return [_sheet_to_summary(sheet) for sheet in sheets]
+
+
+@router.get("/{project_id}/answer-sheets/trash", response_model=list[AnswerSheetSummary])
+def list_deleted_answer_sheets(project_id: str, db: Session = Depends(get_db)) -> list[AnswerSheetSummary]:
+    _get_project_or_404(project_id, db)
+    sheets = (
+        db.query(AnswerSheet)
+        .filter(AnswerSheet.project_id == project_id, AnswerSheet.deleted_at.is_not(None))
+        .order_by(AnswerSheet.deleted_at.desc())
         .all()
     )
     return [_sheet_to_summary(sheet) for sheet in sheets]
@@ -118,7 +135,7 @@ def get_answer_sheet(
 ) -> AnswerSheetDetail:
     _get_project_or_404(project_id, db)
     sheet = db.get(AnswerSheet, answer_sheet_id)
-    if not sheet or sheet.project_id != project_id:
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Answer sheet not found.")
     return _sheet_to_detail(sheet)
 
@@ -232,11 +249,127 @@ async def upload_answer_sheet(
     return _sheet_to_detail(sheet)
 
 
+@router.put("/{project_id}/answer-sheets/{answer_sheet_id}/regions/{question_key}", response_model=AnswerSheetDetail)
+def update_answer_sheet_region(
+    project_id: str,
+    answer_sheet_id: str,
+    question_key: str,
+    payload: AnswerSheetRegionUpdate,
+    db: Session = Depends(get_db),
+) -> AnswerSheetDetail:
+    _get_project_or_404(project_id, db)
+    sheet = db.get(AnswerSheet, answer_sheet_id)
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Answer sheet not found.")
+
+    page_paths = json.loads(sheet.page_image_paths_json or "[]")
+    question_region_map = json.loads(sheet.question_region_map_json or "{}")
+    refs = question_region_map.get(question_key)
+    if not refs:
+        raise HTTPException(status_code=404, detail=f"Question region '{question_key}' was not found.")
+    if payload.page_index is None and len(refs) > 1:
+        raise HTTPException(status_code=422, detail="page_index is required when a question has multiple region slices.")
+    ref_index = next((index for index, ref in enumerate(refs) if payload.page_index is None or ref.get("page_index") == payload.page_index), None)
+    if ref_index is None:
+        raise HTTPException(status_code=404, detail=f"Question region '{question_key}' was not found on the requested page.")
+
+    ref = refs[ref_index]
+    page_index = int(ref.get("page_index", -1))
+    if page_index < 0 or page_index >= len(page_paths):
+        raise HTTPException(status_code=422, detail="The selected region points to an unavailable page image.")
+    image = cv2.imread(page_paths[page_index])
+    if image is None:
+        raise HTTPException(status_code=422, detail="The selected page image could not be read.")
+    bbox = payload.bbox
+    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        raise HTTPException(status_code=422, detail="Region bbox must have positive width and height.")
+    bbox = _clamp_bbox(bbox, image.shape[1], image.shape[0])
+    if bbox[2] <= bbox[0] or bbox[3] <= bbox[1]:
+        raise HTTPException(status_code=422, detail="Region bbox must remain inside the page image.")
+
+    x1, y1, x2, y2 = bbox
+    crop = image[y1:y2, x1:x2]
+    if crop.size == 0:
+        raise HTTPException(status_code=422, detail="The selected region produced an empty crop.")
+    regions_dir = storage.answer_sheet_dir(project_id, answer_sheet_id) / "regions"
+    preview_path = regions_dir / f"{safe_region_filename_key(question_key)}_p{page_index + 1}.png"
+    encoded = cv2.imencode(".png", crop)
+    if not encoded[0]:
+        raise HTTPException(status_code=422, detail="The selected region could not be encoded.")
+    storage.atomic_write_bytes(preview_path, encoded[1].tobytes())
+
+    ref["bbox"] = bbox
+    if ref.get("nominal_bbox"):
+        ref["overflow_detected"] = _has_overflow(image, ref["nominal_bbox"], bbox)
+    question_region_map[question_key] = refs
+    sheet.question_region_map_json = json.dumps(question_region_map)
+
+    affected_results = [
+        result
+        for result in db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all()
+        if resolve_region_keys_for_question(result.question_number, [question_key])
+    ]
+    if affected_results:
+        for result in affected_results:
+            result.ai_score = None
+            result.ai_rationale = None
+            result.part_scores_json = "[]"
+            result.transcription_summary = None
+            result.human_confirmed_score = None
+            result.human_reviewer_note = None
+            result.reviewed = False
+            result.grading_status = "pending"
+            result.choice_status = "graded"
+            result.error_message = "Crop edited; re-grading required."
+            result.graded_at = None
+        sheet.grading_status = "not_graded"
+        sheet.report_path = None
+        sheet.report_generated_at = None
+        sheet.completed_at = None
+    db.commit()
+    db.refresh(sheet)
+    return _sheet_to_detail(sheet)
+
+
+@router.delete("/{project_id}/answer-sheets/{answer_sheet_id}", status_code=204)
+def delete_answer_sheet(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> None:
+    _get_project_or_404(project_id, db)
+    sheet = db.get(AnswerSheet, answer_sheet_id)
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Answer sheet not found.")
+    sheet.deleted_at = datetime.now(timezone.utc)
+    db.commit()
+
+
+@router.post("/{project_id}/answer-sheets/{answer_sheet_id}/restore", response_model=AnswerSheetSummary)
+def restore_answer_sheet(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> AnswerSheetSummary:
+    _get_project_or_404(project_id, db)
+    sheet = db.get(AnswerSheet, answer_sheet_id)
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is None:
+        raise HTTPException(status_code=404, detail="Answer sheet not found in Trash.")
+    sheet.deleted_at = None
+    db.commit()
+    db.refresh(sheet)
+    return _sheet_to_summary(sheet)
+
+
+@router.delete("/{project_id}/answer-sheets/{answer_sheet_id}/permanent", status_code=204)
+def permanently_delete_answer_sheet(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> None:
+    _get_project_or_404(project_id, db)
+    sheet = db.get(AnswerSheet, answer_sheet_id)
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is None:
+        raise HTTPException(status_code=404, detail="Answer sheet not found in Trash.")
+    sheet_dir = storage.answer_sheet_dir(project_id, answer_sheet_id)
+    db.delete(sheet)
+    db.commit()
+    shutil.rmtree(sheet_dir, ignore_errors=True)
+
+
 @router.post("/{project_id}/answer-sheets/{answer_sheet_id}/report", response_model=ReportResponse)
 def create_examiner_report(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> ReportResponse:
     project = _get_project_or_404(project_id, db)
     sheet = db.get(AnswerSheet, answer_sheet_id)
-    if not sheet or sheet.project_id != project_id:
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Answer sheet not found.")
 
     results = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).order_by(GradingResult.question_number).all()

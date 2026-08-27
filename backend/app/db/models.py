@@ -90,6 +90,7 @@ class AnswerSheet(Base):
     page_image_paths_json: Mapped[str] = mapped_column(Text, default="[]", nullable=False)
     question_region_map_json: Mapped[str] = mapped_column(Text, default="{}", nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # --- Phase 2 addition ---
     # Sheet-level grading status, independent of individual GradingResult.grading_status rows.

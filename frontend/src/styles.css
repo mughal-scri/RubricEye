@@ -3207,6 +3207,15 @@ textarea.form-input {
 }
 
 .alignment-list { display: grid; gap: 0; }
+.crop-handle { fill: #ffffff; stroke: #1d4ed8; stroke-width: 4; cursor: nwse-resize; }
+.crop-handle-ne, .crop-handle-sw { cursor: nesw-resize; }
+.overlay-region-editable rect { cursor: move; }
+.crop-editor-lightbox .lightbox-content { max-width: 1180px; width: min(94vw, 1180px); }
+.crop-editor-content { display: grid; gap: 1rem; }
+.crop-editor-actions { justify-content: flex-end; }
+.crop-item { display: grid; gap: .5rem; }
+.crop-adjust-button { justify-self: start; }
+.trash-section { margin-top: 2rem; }
 .alignment-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(260px, .8fr); gap: 24px; padding: 22px 0; border-top: 1px solid var(--color-slate-200); }
 .alignment-row:first-of-type { border-top: 0; }
 .alignment-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
