@@ -331,6 +331,80 @@ def update_answer_sheet_region(
     return _sheet_to_detail(sheet)
 
 
+@router.post("/{project_id}/answer-sheets/{answer_sheet_id}/regions/{question_key}/confirm-overflow", response_model=AnswerSheetDetail)
+def confirm_answer_sheet_region_overflow(
+    project_id: str,
+    answer_sheet_id: str,
+    question_key: str,
+    page_index: int | None = None,
+    db: Session = Depends(get_db),
+) -> AnswerSheetDetail:
+    """Acknowledge examiner review of overflow for one question.
+
+    This deliberately clears all slices belonging to the selected question,
+    without altering their crops or any other question's segmentation data.
+    The warning is cleared only after the examiner has inspected/corrected the
+    source crop.
+    """
+    _get_project_or_404(project_id, db)
+    sheet = db.get(AnswerSheet, answer_sheet_id)
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Answer sheet not found.")
+
+    question_region_map = json.loads(sheet.question_region_map_json or "{}")
+    refs = question_region_map.get(question_key)
+    if not refs:
+        raise HTTPException(status_code=404, detail=f"Question region '{question_key}' was not found.")
+    selected = [ref for ref in refs if page_index is None or int(ref.get("page_index", -1)) == page_index]
+    if not selected:
+        raise HTTPException(status_code=404, detail=f"Question region '{question_key}' was not found on the requested page.")
+    for ref in selected:
+        ref["overflow_detected"] = False
+
+    question_region_map[question_key] = refs
+    sheet.question_region_map_json = json.dumps(question_region_map)
+    for result in db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all():
+        if resolve_region_keys_for_question(result.question_number, [question_key]):
+            result.truncation_flag = False
+    db.commit()
+    db.refresh(sheet)
+    return _sheet_to_detail(sheet)
+
+
+@router.post("/{project_id}/answer-sheets/{answer_sheet_id}/alignment/confirm", response_model=AnswerSheetDetail)
+def confirm_answer_sheet_alignment(
+    project_id: str,
+    answer_sheet_id: str,
+    db: Session = Depends(get_db),
+) -> AnswerSheetDetail:
+    """Record examiner confirmation of the stored page/region correspondence.
+
+    Automatic alignment remains conservative and continues to flag uncertain
+    pages at upload time. This explicit, sheet-scoped acknowledgement allows an
+    examiner who has inspected the page overlay to clear only those review
+    markers; it does not change any bounding boxes or other answer sheets.
+    """
+    _get_project_or_404(project_id, db)
+    sheet = db.get(AnswerSheet, answer_sheet_id)
+    if not sheet or sheet.project_id != project_id or sheet.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Answer sheet not found.")
+
+    question_region_map = json.loads(sheet.question_region_map_json or "{}")
+    uncertain_found = False
+    for refs in question_region_map.values():
+        for ref in refs:
+            if ref.get("alignment_uncertain") or ref.get("page_correspondence_uncertain"):
+                uncertain_found = True
+            ref["alignment_uncertain"] = False
+            ref["page_correspondence_uncertain"] = False
+    if not uncertain_found:
+        raise HTTPException(status_code=409, detail="No uncertain page alignment remains to confirm.")
+    sheet.question_region_map_json = json.dumps(question_region_map)
+    db.commit()
+    db.refresh(sheet)
+    return _sheet_to_detail(sheet)
+
+
 @router.delete("/{project_id}/answer-sheets/{answer_sheet_id}", status_code=204)
 def delete_answer_sheet(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> None:
     _get_project_or_404(project_id, db)
@@ -377,7 +451,7 @@ def create_examiner_report(project_id: str, answer_sheet_id: str, db: Session = 
     if blockers:
         raise HTTPException(status_code=409, detail="Report cannot be generated until review is complete: " + "; ".join(blockers))
 
-    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id, QuestionGroup.suggestion_status == "confirmed").all()
+    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
     question_text_by_number = {
         item.question_number: item.question_text
         for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()

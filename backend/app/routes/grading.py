@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -19,6 +20,7 @@ from app.schemas.models import (
     SectionSummary,
 )
 from app.services import first_n_filter, grading, storage
+from app.services.paper_structure import infer_group_suggestions
 from app.services.question_grouping import resolve_region_keys_for_question
 from app.services.segmentation import safe_region_filename_key
 
@@ -40,7 +42,10 @@ def _get_sheet_or_404(project_id: str, answer_sheet_id: str, db: Session) -> Ans
 
 
 def _question_groups_as_dicts(project_id: str, db: Session) -> list[dict]:
-    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id, QuestionGroup.suggestion_status == "confirmed").all()
+    # Provisional groups are still document-derived grading rules. Their status
+    # controls examiner review in Question Group Setup, not whether first-N
+    # selection is silently bypassed.
+    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
     return [
         {
             "id": g.id,
@@ -52,6 +57,38 @@ def _question_groups_as_dicts(project_id: str, db: Session) -> list[dict]:
         }
         for g in groups
     ]
+
+
+def _ensure_grading_groups(project: Project, db: Session) -> None:
+    """Restore document-derived choice groups if a resolved structure lost them."""
+    if db.query(QuestionGroup).filter(QuestionGroup.project_id == project.id).count() > 0:
+        return
+    if project.question_bank_raw_total is None or project.question_bank_effective_total is None:
+        return
+    if project.question_bank_effective_total >= project.question_bank_raw_total:
+        return
+    items = db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project.id).all()
+    suggestions = infer_group_suggestions(
+        project.question_paper_file_path,
+        [{"question_number": item.question_number, "marks_possible": item.marks_possible} for item in items],
+    )
+    for suggestion in suggestions:
+        flat = [question for unit in suggestion.selection_units for question in unit]
+        if not flat:
+            continue
+        db.add(QuestionGroup(
+            id=str(uuid.uuid4()),
+            project_id=project.id,
+            group_name=suggestion.group_name,
+            selection_type=suggestion.selection_type,
+            question_numbers_json=json.dumps(flat),
+            selection_units_json=json.dumps(suggestion.selection_units),
+            n_required=suggestion.n_required,
+            suggestion_confidence=suggestion.confidence,
+            suggestion_evidence=suggestion.evidence,
+            suggestion_status="provisional",
+        ))
+    db.flush()
 
 
 def _region_preview_urls(project_id: str, sheet_id: str, question_number: str, region_map_keys: list[str]) -> list[str]:
@@ -112,7 +149,7 @@ def _upsert_result(db: Session, sheet_id: str, question_number: str, **fields) -
 def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetResultsSummary:
     """Edge Case G: computed on read from GradingResult + QuestionGroup, never persisted."""
     results = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet_id).all()
-    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id, QuestionGroup.suggestion_status == "confirmed").all()
+    groups = db.query(QuestionGroup).filter(QuestionGroup.project_id == project_id).all()
 
     group_listed: dict[str, set[str]] = {}
     for g in groups:
@@ -237,6 +274,8 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
 
 
 def _trigger_grading_inner(project_id: str, answer_sheet_id: str, db: Session, sheet: AnswerSheet) -> GradeTriggerResponse:
+    project = _get_project_or_404(project_id, db)
+    _ensure_grading_groups(project, db)
     qb_items = db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
     qb_items_by_number = {item.question_number: item for item in qb_items}
     question_groups = _question_groups_as_dicts(project_id, db)

@@ -205,6 +205,20 @@ export function updateAnswerSheetRegion(
   });
 }
 
+export function confirmAnswerSheetRegionOverflow(
+  projectId: string,
+  sheetId: string,
+  questionKey: string,
+  pageIndex?: number,
+): Promise<AnswerSheetDetail> {
+  const suffix = pageIndex === undefined ? "" : `?page_index=${pageIndex}`;
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}/regions/${encodeURIComponent(questionKey)}/confirm-overflow${suffix}`, { method: "POST" });
+}
+
+export function confirmAnswerSheetAlignment(projectId: string, sheetId: string): Promise<AnswerSheetDetail> {
+  return request(`/projects/${projectId}/answer-sheets/${sheetId}/alignment/confirm`, { method: "POST" });
+}
+
 export function getAnswerSheet(projectId: string, sheetId: string): Promise<AnswerSheetDetail> {
   return request(`/projects/${projectId}/answer-sheets/${sheetId}`);
 }

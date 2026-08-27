@@ -523,8 +523,9 @@ body {
 .overlay-svg {
   position: absolute;
   top: 1rem;
-  left: 50%;
-  transform: translateX(-50%);
+  left: 1rem;
+  width: calc(100% - 2rem);
+  height: calc(100% - 2rem);
   pointer-events: auto;
 }
 
