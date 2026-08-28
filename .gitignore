@@ -20,7 +20,9 @@
 *.worktrees/
 ./temp/*
 temp/
-
+.qoder/
+.qoder/*
+frontend/src/assets/
 # ============================
 # Python (backend)
 # ============================

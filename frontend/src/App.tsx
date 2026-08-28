@@ -1,4 +1,5 @@
-import { Eye, FolderKanban, Server, Sparkles, Trash2 } from "lucide-react";
+import { FolderKanban, Server, Sparkles, Trash2 } from "lucide-react";
+import logoImage from "./assets/rubriceye-logo.jpeg";
 import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import AnswerSheetDetailPage from "./pages/AnswerSheetDetail";
 import CreateProject from "./pages/CreateProject";
@@ -21,9 +22,7 @@ export default function App() {
       <div className="app-shell">
         <header className="app-header">
           <Link to="/" className="brand-container">
-            <div className="brand-logo">
-              <Eye size={20} color="white" />
-            </div>
+            <img src={logoImage} alt="RubricEye" className="brand-logo-image" />
             <span className="brand-title">RubricEye</span>
             <span className="brand-tag">Local assessment workspace</span>
           </Link>

@@ -1,6 +1,7 @@
 import { AlertCircle, ArrowLeft, Check, CheckCircle2, ChevronLeft, ChevronRight, FileText, FolderPlus, ShieldLock, Sparkles } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import BrandedLoader from "../components/BrandedLoader";
 import FilePicker from "../components/FilePicker";
 import RubricCriteriaEditor from "../components/RubricCriteriaEditor";
 import { createProject, exportRubricStudioPdf, fileUrl, previewRubricStudio, RubricStudioCriterionDraft, RubricStudioPreviewResponse } from "../api/client";
@@ -96,7 +97,7 @@ export default function CreateProject() {
     } catch (err) { setError(errorMessage(err)); } finally { setLoading(false); }
   };
 
-  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><div className="spinner" /><h2>Preparing your assessment…</h2><p>RubricEye is saving the reviewed materials and preparing the adaptive booklet map. Keep this window open until the review step is ready.</p></div></div>;
+  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Preparing your assessment…" /><p>RubricEye is saving the reviewed materials and preparing the adaptive booklet map. Keep this window open until the review step is ready.</p></div></div>;
 
   return <div className="page-narrow staged-creation">
     <div className="breadcrumb"><Link to="/"><ArrowLeft size={14} /> Back to projects</Link></div>

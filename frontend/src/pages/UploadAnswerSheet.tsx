@@ -2,6 +2,7 @@ import { AlertCircle, ArrowLeft, ShieldAlert, Upload } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { uploadAnswerSheet } from "../api/client";
+import BrandedLoader from "../components/BrandedLoader";
 import FilePicker from "../components/FilePicker";
 import { errorMessage } from "../ui";
 
@@ -24,7 +25,7 @@ export default function UploadAnswerSheet() {
   };
 
   if (!projectId) return null;
-  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><div className="spinner" /><h2>Uploading and preparing booklet…</h2><p>The PDF is being converted into ordered pages and prepared against the confirmed template.</p></div></div>;
+  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Uploading and preparing booklet…" /><p>The PDF is being converted into ordered pages and prepared against the confirmed template.</p></div></div>;
 
   return <div className="page-narrow">
     <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span>/</span><span>Upload answer sheet</span></div>
