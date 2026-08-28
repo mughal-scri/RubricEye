@@ -22,6 +22,7 @@ from app.schemas.models import (
 from app.services import first_n_filter, grading, storage
 from app.services.paper_structure import infer_group_suggestions
 from app.services.question_grouping import resolve_region_keys_for_question
+from app.services.reporting import compute_totals
 from app.services.segmentation import safe_region_filename_key
 
 router = APIRouter(prefix="/projects", tags=["grading"])
@@ -169,8 +170,6 @@ def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetRe
             sections["Ungrouped"].append(result)
 
     section_summaries: list[SectionSummary] = []
-    grand_awarded = 0
-    grand_possible = 0
     for name, rows in sections.items():
         if not rows:
             continue
@@ -186,12 +185,7 @@ def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetRe
             )
             for r in rows
         ]
-        section_awarded = sum(q.ai_score or 0 for q in questions)
-        section_possible = sum(
-            q.ai_total_possible or 0
-            for q in questions
-            if q.choice_status not in ("skipped_beyond_n", "skipped_blank")
-        )
+        section_awarded, section_possible = compute_totals(rows)
         section_summaries.append(
             SectionSummary(
                 section_name=name,
@@ -200,8 +194,8 @@ def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetRe
                 section_total_possible=section_possible,
             )
         )
-        grand_awarded += section_awarded
-        grand_possible += section_possible
+
+    grand_awarded, grand_possible = compute_totals(results)
 
     return AnswerSheetResultsSummary(
         answer_sheet_id=sheet_id,

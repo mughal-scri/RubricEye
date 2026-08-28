@@ -59,6 +59,23 @@ def _score(result: GradingResult) -> int | float | None:
     return result.human_confirmed_score if result.reviewed else result.ai_score
 
 
+def compute_totals(results: list[GradingResult]) -> tuple[int, int]:
+    """Compute grand total awarded and possible marks from a list of GradingResult rows.
+
+    This is the single source of truth for exam totals. It includes only reviewable
+    items (graded or flagged_ambiguous, excluding failed). Blank, skipped, and
+    no-region items are excluded from the denominator.
+
+    Returns:
+        (awarded, possible) where awarded sums confirmed or AI scores, and possible
+        sums the maximum marks for reviewable items.
+    """
+    reviewable = [r for r in results if _is_reviewable(r)]
+    awarded = sum((_score(r) or 0) for r in reviewable)
+    possible = sum(r.ai_total_possible or 0 for r in reviewable)
+    return awarded, possible
+
+
 def _question_display(result: GradingResult, question_text_by_number: dict[str, str] | None) -> str:
     question = f"Q{result.question_number}"
     wording = _safe_text((question_text_by_number or {}).get(result.question_number))
@@ -68,8 +85,7 @@ def _question_display(result: GradingResult, question_text_by_number: dict[str, 
 def render_report(project: Project, sheet: AnswerSheet, results: list[GradingResult], groups: list[QuestionGroup], question_text_by_number: dict[str, str] | None = None) -> str:
     """Retain a plain-text representation for diagnostics; downloads use PDF."""
     ordered = _ordered_results(results)
-    awarded = sum((_score(result) or 0) for result in ordered)
-    possible = sum(result.ai_total_possible or 0 for result in ordered if _is_reviewable(result))
+    awarded, possible = compute_totals(ordered)
     lines = [
         f"# RubricEye Examiner Report — {_markdown_escape(project.name)}",
         "",
@@ -106,8 +122,7 @@ def _pdf_text(value: object | None, style: ParagraphStyle) -> Paragraph:
 def render_report_pdf(destination: Path, project: Project, sheet: AnswerSheet, results: list[GradingResult], groups: list[QuestionGroup], question_text_by_number: dict[str, str] | None = None) -> Path:
     """Render a durable, ordered examiner report PDF from reviewed grading data."""
     ordered = _ordered_results(results)
-    awarded = sum((_score(result) or 0) for result in ordered)
-    possible = sum(result.ai_total_possible or 0 for result in ordered if _is_reviewable(result))
+    awarded, possible = compute_totals(ordered)
     pages = len(json.loads(sheet.page_image_paths_json or "[]"))
 
     styles = getSampleStyleSheet()
