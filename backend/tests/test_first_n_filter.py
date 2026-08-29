@@ -185,6 +185,184 @@ def test_compound_choices_stay_together():
         assert sorted(result.skipped_beyond_n) == ["4a", "4b"]
 
 
+def test_attempted_unit_wins_slot_over_ambiguous_predecessor():
+    """Attempted units claim choice slots before ambiguous ones, regardless of unit order.
+
+    Regression for the inverted-selection bug: a noisy blank box that
+    classifies as ambiguous used to consume a choice slot ahead of a genuinely
+    attempted unit, closing the real attempt as beyond-N while opening the
+    blank box for examiner review. Selection must depend only on the group
+    config and the ink classification, never on which unit sorts first.
+    """
+    with tempfile.TemporaryDirectory(prefix="rubriceye_inversion_") as d:
+        root = Path(d)
+        keys = ["5a", "5b", "5c", "6a", "6b", "7a", "7b"]
+        regions = _make_regions(root, keys)
+
+        def classify(paths, *_args):
+            statuses = {
+                safe_region_filename_key("5a"): "ambiguous",
+                safe_region_filename_key("5c"): "blank",
+                safe_region_filename_key("6a"): "ambiguous",
+                safe_region_filename_key("6b"): "ambiguous",
+            }
+            stem = Path(paths[0]).name.rsplit("_p", 1)[0]
+            status = statuses.get(stem, "attempted")
+            ratio = {"blank": 0.0, "ambiguous": 0.03}.get(status, 0.1)
+            return InkDensityResult(status, ratio)
+
+        groups = [
+            {
+                "id": "g1",
+                "selection_type": "choose_n_of_m",
+                "question_numbers": ["5a", "5b", "5c"],
+                "selection_units": [["5a"], ["5b"], ["5c"]],
+                "n_required": 1,
+            },
+            {
+                "id": "g2",
+                "selection_type": "choose_n_of_m",
+                "question_numbers": ["6a", "6b", "7a", "7b"],
+                "selection_units": [["6a", "6b"], ["7a", "7b"]],
+                "n_required": 1,
+            },
+        ]
+        with patch("app.services.first_n_filter.ink_density.classify_unit", side_effect=classify):
+            result = apply_first_n_filter({key: [{}] for key in keys}, regions, keys, groups)
+
+        to_grade_keys = [u.question_number for u in result.to_grade]
+        assert to_grade_keys == ["5b", "7a", "7b"], f"to_grade mismatch: {to_grade_keys}"
+        assert result.flagged_ambiguous == [], (
+            f"Ambiguous predecessors must not be flagged when an attempted unit "
+            f"takes the slot: {result.flagged_ambiguous}"
+        )
+        assert result.skipped_blank == ["5c"]
+        assert result.skipped_beyond_n == ["5a", "6a", "6b"]
+        # Compound members stay one unit: shared batch id and the union of both parts' images.
+        seven_a, seven_b = result.to_grade[1], result.to_grade[2]
+        assert seven_a.compound_batch_id == seven_b.compound_batch_id
+        assert seven_a.compound_image_paths == seven_b.compound_image_paths
+
+
+def test_half_attempted_compound_unit_is_the_chosen_attempt():
+    """One attempted part makes the compound unit the chosen attempt.
+
+    Acceptance Test B (Section C half): the unit is selected whole, and the
+    blank part's crop travels in the same compound batch so it is graded 0
+    rather than dropped.
+    """
+    with tempfile.TemporaryDirectory(prefix="rubriceye_half_") as d:
+        root = Path(d)
+        keys = ["8a", "8b", "9a", "9b"]
+        regions = _make_regions(root, keys)
+
+        def classify(paths, *_args):
+            statuses = {
+                safe_region_filename_key("8a"): "attempted",
+                safe_region_filename_key("8b"): "blank",
+                safe_region_filename_key("9a"): "blank",
+                safe_region_filename_key("9b"): "blank",
+            }
+            stem = Path(paths[0]).name.rsplit("_p", 1)[0]
+            status = statuses[stem]
+            return InkDensityResult(status, 0.1 if status == "attempted" else 0.0)
+
+        groups = [
+            {
+                "id": "c",
+                "selection_type": "choose_n_of_m",
+                "question_numbers": keys,
+                "selection_units": [["8a", "8b"], ["9a", "9b"]],
+                "n_required": 1,
+            },
+        ]
+        with patch("app.services.first_n_filter.ink_density.classify_unit", side_effect=classify):
+            result = apply_first_n_filter({key: [{}] for key in keys}, regions, keys, groups)
+
+        to_grade_keys = [u.question_number for u in result.to_grade]
+        assert to_grade_keys == ["8a", "8b"], f"Half-attempted unit must be selected whole: {to_grade_keys}"
+        assert result.to_grade[0].compound_batch_id == result.to_grade[1].compound_batch_id
+        assert len(result.to_grade[0].compound_image_paths) == 2, (
+            "Both parts' evidence must reach the shared grading call"
+        )
+        assert result.skipped_blank == ["9a", "9b"]
+        assert result.flagged_ambiguous == []
+        assert result.skipped_beyond_n == []
+
+
+def test_underfilled_choice_group_is_not_padded():
+    """Acceptance Test B (Section B): fewer attempted units than N required.
+
+    Blank units must never be selected just to fill the quota.
+    """
+    with tempfile.TemporaryDirectory(prefix="rubriceye_underfill_") as d:
+        root = Path(d)
+        keys = ["2i", "2ii", "2iii", "2iv", "2v"]
+        regions = _make_regions(root, keys)
+
+        def classify(paths, *_args):
+            stem = Path(paths[0]).name.rsplit("_p", 1)[0]
+            status = "attempted" if stem != safe_region_filename_key("2v") else "blank"
+            return InkDensityResult(status, 0.1 if status == "attempted" else 0.0)
+
+        groups = [
+            {
+                "id": "b",
+                "selection_type": "choose_n_of_m",
+                "question_numbers": keys,
+                "selection_units": [[k] for k in keys],
+                "n_required": 5,
+            },
+        ]
+        with patch("app.services.first_n_filter.ink_density.classify_unit", side_effect=classify):
+            result = apply_first_n_filter({key: [{}] for key in keys}, regions, keys, groups)
+
+        to_grade_keys = [u.question_number for u in result.to_grade]
+        assert to_grade_keys == ["2i", "2ii", "2iii", "2iv"], f"No padding expected: {to_grade_keys}"
+        assert result.skipped_blank == ["2v"]
+        assert result.flagged_ambiguous == []
+        assert result.skipped_beyond_n == []
+
+
+def test_ambiguous_fills_leftover_slots_only():
+    """Ambiguous units fill only the slots attempted units leave behind."""
+    with tempfile.TemporaryDirectory(prefix="rubriceye_leftover_") as d:
+        root = Path(d)
+        keys = ["1a", "1b", "1c", "1d", "1e"]
+        regions = _make_regions(root, keys)
+
+        def classify(paths, *_args):
+            statuses = {
+                safe_region_filename_key("1a"): "attempted",
+                safe_region_filename_key("1b"): "ambiguous",
+                safe_region_filename_key("1c"): "ambiguous",
+                safe_region_filename_key("1d"): "ambiguous",
+                safe_region_filename_key("1e"): "blank",
+            }
+            stem = Path(paths[0]).name.rsplit("_p", 1)[0]
+            status = statuses[stem]
+            ratio = {"attempted": 0.1, "ambiguous": 0.03, "blank": 0.0}[status]
+            return InkDensityResult(status, ratio)
+
+        groups = [
+            {
+                "id": "a",
+                "selection_type": "choose_n_of_m",
+                "question_numbers": keys,
+                "selection_units": [[k] for k in keys],
+                "n_required": 3,
+            },
+        ]
+        with patch("app.services.first_n_filter.ink_density.classify_unit", side_effect=classify):
+            result = apply_first_n_filter({key: [{}] for key in keys}, regions, keys, groups)
+
+        to_grade_keys = [u.question_number for u in result.to_grade]
+        assert to_grade_keys == ["1a"]
+        assert result.flagged_ambiguous == ["1b", "1c"]
+        assert result.skipped_beyond_n == ["1d"]
+        assert result.skipped_blank == ["1e"]
+
+
 # ---------------------------------------------------------------------------
 # Question identity (from validate_question_identity.py)
 # ---------------------------------------------------------------------------

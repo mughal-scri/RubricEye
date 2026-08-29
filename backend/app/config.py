@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 100
     ink_density_blank_threshold: float = 0.02
     ink_density_ambiguous_threshold: float = 0.04
+    # A region whose dark-pixel ratio exceeds the blank-template baseline by less
+    # than this is blank: printed rules/labels alone must never look like an
+    # attempt. See segmentation.build_question_region_map for baseline crops.
+    ink_density_excess_tolerance: float = 0.004
 
     # --- Phase 2: security boundaries ---
     api_token: str | None = None

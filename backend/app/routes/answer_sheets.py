@@ -297,6 +297,12 @@ def update_answer_sheet_region(
     if not encoded[0]:
         raise HTTPException(status_code=422, detail="The selected region could not be encoded.")
     storage.atomic_write_bytes(preview_path, encoded[1].tobytes())
+    # The examiner moved this region, so the blank-template baseline written at
+    # segmentation time no longer matches the crop geometry. Remove it so ink
+    # classification falls back to the absolute thresholds for this region.
+    baseline_stem = safe_region_filename_key(question_key)
+    baseline_page = page_index + 1
+    (regions_dir / f"{baseline_stem}__baseline_p{baseline_page}.png").unlink(missing_ok=True)
 
     ref["bbox"] = bbox
     if ref.get("nominal_bbox"):

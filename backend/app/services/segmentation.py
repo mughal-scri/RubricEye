@@ -36,6 +36,41 @@ def _expand_bbox(bbox: list[int], width: int, height: int) -> list[int]:
     return _clamp_bbox([x1 - padding, y1 - padding, x2 + padding, y2 + padding], width, height)
 
 
+def _write_baseline_crop(
+    reference_image: np.ndarray | None,
+    template_bbox: list[int],
+    regions_output_dir: Path,
+    preview_name: str,
+) -> None:
+    """Write the blank-template crop matching a region's template-space bbox.
+
+    The file is named "<key>__baseline_p<N>.png" so ink_density can compare the
+    scan crop against the printed-content baseline, while first_n_filter's
+    "{key}_p*.png" glob never picks it up as a gradable crop. Silently skips
+    when no readable reference page image exists; classification then falls
+    back to the absolute thresholds.
+
+    Args:
+        reference_image: rendered blank-booklet page (template coordinates).
+        template_bbox: region bbox in template coordinates.
+        regions_output_dir: directory that receives the region crops.
+        preview_name: scan crop filename "<key>_p<N>.png".
+    """
+    if reference_image is None:
+        return
+    suffix = "_p"
+    stem, _, page_suffix = preview_name.rpartition(suffix)
+    if not stem or not page_suffix:
+        return
+    expanded = _expand_bbox(template_bbox, reference_image.shape[1], reference_image.shape[0])
+    x1, y1, x2, y2 = expanded
+    crop = reference_image[y1:y2, x1:x2]
+    if crop.size == 0:
+        return
+    baseline_name = f"{stem}__baseline_p{page_suffix}"
+    atomic_write_bytes(regions_output_dir / baseline_name, cv2.imencode(".png", crop)[1].tobytes())
+
+
 def _ink_mask(image: np.ndarray) -> np.ndarray:
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     # Printed rules are thin and low-contrast; this threshold prioritizes the
@@ -92,6 +127,9 @@ def build_question_region_map(
             continue
         if matrix is None:
             matrix = np.identity(3, dtype=np.float64)
+        page_ref = alignment_reference.get("pages", {}).get(str(page_number), {})
+        reference_path = page_ref.get("reference_image_path")
+        reference_image = cv2.imread(reference_path) if reference_path else None
 
         for region in page_data.get("regions", []):
             q_num = region["question_number"]
@@ -108,6 +146,7 @@ def build_question_region_map(
             preview_name = f"{safe_region_filename_key(key)}_p{page_number}.png"
             preview_path = regions_output_dir / preview_name
             atomic_write_bytes(preview_path, cv2.imencode(".png", crop)[1].tobytes())
+            _write_baseline_crop(reference_image, region["bbox"], regions_output_dir, preview_name)
             question_region_map.setdefault(key, []).append(
                 {
                     "page_index": page_index,

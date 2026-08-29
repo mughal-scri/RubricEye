@@ -127,23 +127,44 @@ def apply_first_n_filter(question_region_map: dict, regions_dir: Path, question_
         selectable_units = [_resolve_group_unit(raw_unit, members_sorted) for raw_unit in raw_units]
         selectable_units = [unit for unit in selectable_units if unit]
         n_required = int(group.get("n_required") or 0)
-        attempted_count = 0
-        for unit_numbers in selectable_units:
-            status, ratio, image_paths = _classify_unit(unit_numbers, units)
+
+        # Classify every selectable unit up front so slot allocation is ordered
+        # by evidence strength, not by unit order: attempted units claim choice
+        # slots first and ambiguous units only fill leftover slots. Allocating
+        # slots in unit order instead lets a noisy blank box that misclassifies
+        # as ambiguous consume a slot ahead of a genuinely attempted unit,
+        # inverting the selection (real attempt closed as beyond-N, blank box
+        # opened for examiner review).
+        classified_units = [
+            (unit_numbers, *_classify_unit(unit_numbers, units))
+            for unit_numbers in selectable_units
+        ]
+
+        selected_indexes: set[int] = set()
+        slots_left = n_required
+        for index, (_numbers, status, _ratio, _paths) in enumerate(classified_units):
+            if status == "attempted" and slots_left > 0:
+                selected_indexes.add(index)
+                slots_left -= 1
+        for index, (_numbers, status, _ratio, _paths) in enumerate(classified_units):
+            if status == "ambiguous" and slots_left > 0:
+                selected_indexes.add(index)
+                slots_left -= 1
+
+        for index, (unit_numbers, status, ratio, image_paths) in enumerate(classified_units):
             if status == "no_regions":
                 result.no_regions.extend(unit_numbers)
             elif status == "blank":
                 result.skipped_blank.extend(unit_numbers)
-            elif attempted_count < n_required:
-                # Both attempted and ambiguous count as a real attempt: the
-                # student wrote something.  Ambiguous ink goes to examiner
-                # review instead of the VL model (saves cost and avoids
-                # unreliable classification), but it still occupies one of
-                # the N allowed choice slots.
+            elif index in selected_indexes:
                 if status == "ambiguous":
+                    # Ambiguous ink still means "the student probably wrote
+                    # something": it occupies a leftover slot and goes to
+                    # examiner review instead of the VL model (saves cost and
+                    # avoids unreliable classification).
                     result.flagged_ambiguous.extend(unit_numbers)
                 else:
-                    compound_batch_id = f"{group_id}:{attempted_count}" if len(unit_numbers) > 1 else None
+                    compound_batch_id = f"{group_id}:{index}" if len(unit_numbers) > 1 else None
                     for number in unit_numbers:
                         # Keep each member's own evidence for traceability, while the
                         # compound collection gives the grader one authoritative union
@@ -159,7 +180,6 @@ def apply_first_n_filter(question_region_map: dict, regions_dir: Path, question_
                                 list(image_paths) if compound_batch_id else None,
                             )
                         )
-                attempted_count += 1
             else:
                 result.skipped_beyond_n.extend(unit_numbers)
 

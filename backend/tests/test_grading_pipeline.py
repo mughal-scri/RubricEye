@@ -160,6 +160,53 @@ def test_compound_batch_evidence_and_scores():
         assert [r.ai_score for r in results] == [3, 5]
 
 
+def test_compound_batch_blank_part_scores_zero():
+    """A blank part in a selected compound unit scores 0 without bleeding marks.
+
+    Acceptance Test B (Section C half): the first-N filter selects the unit
+    because one part is attempted; this pins the grading side — the blank
+    part keeps its own rubric row and scores 0 while the attempted part's
+    marks stay with the attempted part.
+    """
+    with tempfile.TemporaryDirectory(prefix="rubriceye_grading_") as d:
+        root = Path(d)
+        part_a = root / "10a.png"
+        part_b = root / "10b.png"
+        _make_image(part_a, (255, 0, 0))
+        _make_image(part_b, (255, 255, 255))
+
+        qb = {
+            "10a": MagicMock(marks_possible=4, key_points="a"),
+            "10b": MagicMock(marks_possible=6, key_points="b"),
+        }
+        compound = [
+            QuestionUnit("10a", "attempted", 0.2, [str(part_a)], "choice", "choice:0", [str(part_a), str(part_b)]),
+            QuestionUnit("10b", "attempted", 0.0, [str(part_b)], "choice", "choice:0", [str(part_a), str(part_b)]),
+        ]
+        payload = {
+            "transcription_summary": "Part (a) answered, part (b) blank.",
+            "part_scores": [
+                {"part": "a", "marks_awarded": 3, "marks_possible": 4, "rationale": "A evidence."},
+                {"part": "b", "marks_awarded": 0, "marks_possible": 6, "rationale": "Blank."},
+            ],
+            "total_awarded": 3,
+            "total_possible": 10,
+            "flags": [],
+            "confidence": "high",
+        }
+        client = _mock_client(payload)
+        with patch.object(grading, "_get_client", return_value=client):
+            results = grading.grade_batch(compound, qb)
+
+        assert len(results) == 2
+        assert all(r.grading_status == "complete" for r in results)
+        assert [r.ai_score for r in results] == [3, 0], (
+            f"Blank part must score 0 without bleeding: {[r.ai_score for r in results]}"
+        )
+        assert results[0].ai_total_possible == 4
+        assert results[1].ai_total_possible == 6
+
+
 def test_bare_question_aggregates_parts():
     """Bare question (no part label) aggregates part scores into total."""
     with tempfile.TemporaryDirectory(prefix="rubriceye_grading_") as d:
