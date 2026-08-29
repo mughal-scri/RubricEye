@@ -277,6 +277,11 @@ class GradingResultResponse(BaseModel):
     error_message: str | None
     graded_at: datetime | None
     region_preview_urls: list[str] = []
+    # Phase 3 audit trail
+    model_name: str | None = None
+    prompt_version: str | None = None
+    raw_response_json: str | None = None
+    request_payload_summary: str | None = None
 
 
 class GradingResultSummary(BaseModel):
@@ -334,3 +339,20 @@ class GradeTriggerResponse(BaseModel):
     skipped_beyond_n: list[str]
     flagged_ambiguous: list[str]
     failed: list[str]
+
+
+class GradeEnqueueResponse(BaseModel):
+    """Response from POST …/grade (Phase 1 async): job accepted for background processing."""
+    job_id: str
+    answer_sheet_id: str
+
+
+class JobStatusResponse(BaseModel):
+    """Response from GET /jobs/{job_id} for polling."""
+    job_id: str
+    answer_sheet_id: str
+    status: str  # pending | in_progress | complete | failed
+    created_at: datetime
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
+    error: str | None = None

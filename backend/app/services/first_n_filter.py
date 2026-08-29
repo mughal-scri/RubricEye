@@ -134,25 +134,31 @@ def apply_first_n_filter(question_region_map: dict, regions_dir: Path, question_
                 result.no_regions.extend(unit_numbers)
             elif status == "blank":
                 result.skipped_blank.extend(unit_numbers)
-            elif status == "ambiguous":
-                result.flagged_ambiguous.extend(unit_numbers)
             elif attempted_count < n_required:
-                compound_batch_id = f"{group_id}:{attempted_count}" if len(unit_numbers) > 1 else None
-                for number in unit_numbers:
-                    # Keep each member's own evidence for traceability, while the
-                    # compound collection gives the grader one authoritative union
-                    # of every part's images for the single shared model call.
-                    result.to_grade.append(
-                        QuestionUnit(
-                            number,
-                            "attempted",
-                            ratio,
-                            list(units[number].image_paths),
-                            group_id,
-                            compound_batch_id,
-                            list(image_paths) if compound_batch_id else None,
+                # Both attempted and ambiguous count as a real attempt: the
+                # student wrote something.  Ambiguous ink goes to examiner
+                # review instead of the VL model (saves cost and avoids
+                # unreliable classification), but it still occupies one of
+                # the N allowed choice slots.
+                if status == "ambiguous":
+                    result.flagged_ambiguous.extend(unit_numbers)
+                else:
+                    compound_batch_id = f"{group_id}:{attempted_count}" if len(unit_numbers) > 1 else None
+                    for number in unit_numbers:
+                        # Keep each member's own evidence for traceability, while the
+                        # compound collection gives the grader one authoritative union
+                        # of every part's images for the single shared model call.
+                        result.to_grade.append(
+                            QuestionUnit(
+                                number,
+                                "attempted",
+                                ratio,
+                                list(units[number].image_paths),
+                                group_id,
+                                compound_batch_id,
+                                list(image_paths) if compound_batch_id else None,
+                            )
                         )
-                    )
                 attempted_count += 1
             else:
                 result.skipped_beyond_n.extend(unit_numbers)

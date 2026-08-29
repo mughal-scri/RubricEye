@@ -1,7 +1,7 @@
 import { AlertCircle, ArrowLeft, CheckCircle2, Crop, FileText, GraduationCap, RotateCcw, Save, ZoomIn } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AnswerSheetDetail as AnswerSheetDetailType, BBox, confirmAnswerSheetAlignment, confirmAnswerSheetRegionOverflow, fileUrl, getAnswerSheet, gradeAnswerSheet, listGradingResults, TemplateRegion, updateAnswerSheetRegion } from "../api/client";
+import { AnswerSheetDetail as AnswerSheetDetailType, BBox, confirmAnswerSheetAlignment, confirmAnswerSheetRegionOverflow, fileUrl, getAnswerSheet, gradeAnswerSheet, listGradingResults, pollGradingJob, TemplateRegion, updateAnswerSheetRegion } from "../api/client";
 import RegionOverlay from "../components/RegionOverlay";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
 
@@ -39,7 +39,10 @@ export default function AnswerSheetDetailPage() {
     if (!projectId || !sheetId) return;
     setGrading(true); setError("");
     try {
-      await gradeAnswerSheet(projectId, sheetId);
+      const { job_id } = await gradeAnswerSheet(projectId, sheetId);
+      if (job_id !== "already-processed") {
+        await pollGradingJob(job_id);
+      }
       load();
     } catch (err) {
       setError(errorMessage(err));

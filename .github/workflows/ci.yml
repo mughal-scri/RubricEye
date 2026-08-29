@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main, Development, QoderBuild]
+  pull_request:
+    branches: [main, Development]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tesseract-ocr
+
+      - name: Install Python dependencies
+        working-directory: backend
+        run: |
+          python -m venv venv
+          venv/bin/pip install -r requirements.txt
+
+      - name: Compile backend
+        working-directory: backend
+        run: venv/bin/python -m compileall app/ -q
+
+      - name: Run offline tests
+        working-directory: backend
+        env:
+          RUBRICEYE_DASHSCOPE_API_KEY: fake-key-for-ci
+          RUBRICEYE_API_TOKEN: ci-test-token
+        run: venv/bin/python -m pytest tests/ -v --ignore=tests/live/
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Build frontend
+        working-directory: frontend
+        run: npm run build

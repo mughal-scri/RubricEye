@@ -36,6 +36,20 @@ if [ -z "$DASHSCOPE_API_KEY" ] && [ -z "$RUBRICEYE_DASHSCOPE_API_KEY" ]; then
     echo ""
 fi
 
+# --- Phase 2: local API token -------------------------------------------
+# If no explicit token is set, check for a persisted token file.
+# If neither exists, the backend will auto-generate one on first startup
+# and persist it to <data_dir>/.api_token.  The frontend fetches the
+# token from /config, so no further injection is needed for Vite.
+if [ -z "$RUBRICEYE_API_TOKEN" ]; then
+    _TOKEN_DIR="${RUBRICEYE_DATA_DIR:-$HOME/rubriceye_data}"
+    _TOKEN_FILE="$_TOKEN_DIR/.api_token"
+    if [ -f "$_TOKEN_FILE" ]; then
+        export RUBRICEYE_API_TOKEN="$(cat "$_TOKEN_FILE")"
+        echo "✓ Loaded existing API token from $_TOKEN_FILE"
+    fi
+fi
+
 # --- Port-conflict check --------------------------------------------------
 # A pure-bash TCP probe -- no dependency on lsof/ss/fuser being installed.
 port_in_use() {

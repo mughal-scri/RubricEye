@@ -1,7 +1,7 @@
 import { ArrowLeft, CheckCircle2, Clock3, Eye, FileCheck2, FileDown, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, ProjectDetail as ProjectDetailType, restoreAnswerSheet } from "../api/client";
+import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, pollGradingJob, ProjectDetail as ProjectDetailType, restoreAnswerSheet } from "../api/client";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
 
 export default function ProjectDetailPage() {
@@ -67,7 +67,10 @@ export default function ProjectDetailPage() {
     setGradingSheetId(sheetId);
     setError("");
     try {
-      await gradeAnswerSheet(projectId, sheetId);
+      const { job_id } = await gradeAnswerSheet(projectId, sheetId);
+      if (job_id !== "already-processed") {
+        await pollGradingJob(job_id);
+      }
       load();
     } catch (err) {
       setError(`The sheet could not be graded. ${errorMessage(err)}`);

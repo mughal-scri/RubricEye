@@ -1,5 +1,24 @@
 export const API_BASE = "http://127.0.0.1:8765";
 
+// Phase 2: local API token — fetched from /config on first request and
+// included in all subsequent requests as a Bearer token.
+let _apiToken: string | null = null;
+
+async function ensureToken(): Promise<string> {
+  if (_apiToken) return _apiToken;
+  const res = await fetch(`${API_BASE}/config`);
+  if (!res.ok) throw new Error("Failed to fetch API config.");
+  const cfg = await res.json();
+  const token: string = cfg.api_token || "";
+  _apiToken = token;
+  return token;
+}
+
+/** Override the API token (used by tests or pre-configured environments). */
+export function setApiToken(token: string): void {
+  _apiToken = token;
+}
+
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -90,9 +109,14 @@ export interface AnswerSheetDetail extends AnswerSheetSummary {
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const token = await ensureToken();
+  const headers = new Headers(init?.headers);
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
   let response: Response;
   try {
-    response = await fetch(`${API_BASE}${path}`, init);
+    response = await fetch(`${API_BASE}${path}`, { ...init, headers });
   } catch {
     throw new Error("RubricEye cannot reach the local processing service. Your project files remain on this device.");
   }
@@ -235,7 +259,12 @@ export function uploadAnswerSheet(
 }
 
 export function fileUrl(path: string): string {
-  return `${API_BASE}${path}`;
+  const base = `${API_BASE}${path}`;
+  if (_apiToken) {
+    const sep = path.includes("?") ? "&" : "?";
+    return `${base}${sep}token=${encodeURIComponent(_apiToken)}`;
+  }
+  return base;
 }
 
 // ============================================================
@@ -552,8 +581,38 @@ export interface GradeTriggerResponse {
   failed: string[];
 }
 
-export function gradeAnswerSheet(projectId: string, sheetId: string): Promise<GradeTriggerResponse> {
+export interface GradeEnqueueResponse {
+  job_id: string;
+  answer_sheet_id: string;
+}
+
+export interface JobStatusResponse {
+  job_id: string;
+  answer_sheet_id: string;
+  status: "pending" | "in_progress" | "complete" | "failed";
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  error: string | null;
+}
+
+export function gradeAnswerSheet(projectId: string, sheetId: string): Promise<GradeEnqueueResponse> {
   return request(`/projects/${projectId}/answer-sheets/${sheetId}/grade`, { method: "POST" });
+}
+
+export function getJobStatus(jobId: string): Promise<JobStatusResponse> {
+  return request(`/jobs/${jobId}`);
+}
+
+/** Poll a grading job until it reaches a terminal state (complete or failed). */
+export async function pollGradingJob(jobId: string, intervalMs = 3000, timeoutMs = 600000): Promise<JobStatusResponse> {
+  const start = Date.now();
+  while (true) {
+    const status = await getJobStatus(jobId);
+    if (status.status === "complete" || status.status === "failed") return status;
+    if (Date.now() - start > timeoutMs) throw new Error("Grading timed out. Please retry from the answer sheet page.");
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
 }
 
 export function createExaminerReport(projectId: string, sheetId: string): Promise<ReportResponse> {

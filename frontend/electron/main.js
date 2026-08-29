@@ -1,9 +1,29 @@
 const { app, BrowserWindow } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
 
 const BACKEND_PORT = 8765;
 let backendProcess = null;
+
+/** Read or generate a persistent local API token (Phase 2). */
+function ensureApiToken() {
+  if (process.env.RUBRICEYE_API_TOKEN) return process.env.RUBRICEYE_API_TOKEN;
+  const dataDir = process.env.RUBRICEYE_DATA_DIR || path.join(require("os").homedir(), "rubriceye_data");
+  const tokenFile = path.join(dataDir, ".api_token");
+  try {
+    if (fs.existsSync(tokenFile)) {
+      const existing = fs.readFileSync(tokenFile, "utf-8").trim();
+      if (existing) return existing;
+    }
+  } catch { /* fall through to generate */ }
+  const token = crypto.randomBytes(32).toString("base64url");
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(tokenFile, token, { mode: 0o600 });
+  console.log(`[RubricEye] API token generated: ${tokenFile}`);
+  return token;
+}
 
 function startBackend() {
   const backendDir = path.join(__dirname, "..", "..", "backend");
@@ -15,12 +35,14 @@ function startBackend() {
 
   const executable = require("fs").existsSync(venvPython) ? venvPython : python;
 
+  const apiToken = ensureApiToken();
+
   backendProcess = spawn(
     executable,
     ["-m", "uvicorn", "app.main:app", "--host", "127.0.0.1", "--port", String(BACKEND_PORT)],
     {
       cwd: backendDir,
-      env: { ...process.env },
+      env: { ...process.env, RUBRICEYE_API_TOKEN: apiToken },
       stdio: "inherit",
     }
   );

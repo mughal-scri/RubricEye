@@ -1,4 +1,6 @@
 from pathlib import Path
+import secrets
+import sys
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -26,6 +28,43 @@ class Settings(BaseSettings):
     max_pdf_pages: int = 100
     ink_density_blank_threshold: float = 0.02
     ink_density_ambiguous_threshold: float = 0.04
+
+    # --- Phase 2: security boundaries ---
+    api_token: str | None = None
+    cors_origins: list[str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+    def ensure_token(self) -> str:
+        """Auto-generate or load the persistent API token.
+
+        Called once during app startup. If RUBRICEYE_API_TOKEN is already
+        set, uses that value. Otherwise reads from <data_dir>/.api_token
+        or generates a new one, persists it, and prints it once.
+        """
+        if self.api_token:
+            return self.api_token
+
+        token_file = self.data_dir / ".api_token"
+        if token_file.exists():
+            token = token_file.read_text().strip()
+            if token:
+                self.api_token = token
+                return token
+
+        # Generate a new token and persist it.
+        token = secrets.token_urlsafe(32)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token)
+        token_file.chmod(0o600)
+        print(
+            f"\n[RubricEye] API token generated and saved to {token_file}\n"
+            f"            The frontend fetches this automatically from /config.\n",
+            file=sys.stderr,
+        )
+        self.api_token = token
+        return token
 
     @property
     def db_path(self) -> Path:

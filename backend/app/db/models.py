@@ -203,4 +203,52 @@ class GradingResult(Base):
 
     graded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # --- Phase 3: prompt & model audit trail ---
+    # Never store identity data (names, PII) in these fields.
+    model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    prompt_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    raw_response_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    request_payload_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
     answer_sheet: Mapped["AnswerSheet"] = relationship(back_populates="grading_results")
+
+
+class PromptVersion(Base):
+    """Versioned system prompt for grading (Phase 3 audit trail).
+
+    Each row is a distinct prompt snapshot. The grading service references
+    the version label when writing GradingResult rows, enabling full audit
+    of what prompt produced what result. Never modify an existing row —
+    create a new version instead.
+    """
+
+    __tablename__ = "prompt_versions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    version_label: Mapped[str] = mapped_column(String(32), nullable=False, unique=True)
+    system_prompt_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+
+
+class GradingJob(Base):
+    """Async grading job for background processing (Phase 1).
+
+    One job per answer sheet grading request. The background worker picks up
+    pending jobs, processes them, and updates the status. Crash recovery on
+    startup resets stale in_progress jobs to failed.
+
+    Status lifecycle: pending -> in_progress -> complete | failed
+    """
+
+    __tablename__ = "grading_jobs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_uuid)
+    answer_sheet_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("answer_sheets.id"), nullable=False, index=True
+    )
+    # pending | in_progress | complete | failed
+    status: Mapped[str] = mapped_column(String(24), default="pending", nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)

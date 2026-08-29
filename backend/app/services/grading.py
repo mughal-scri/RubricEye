@@ -30,6 +30,10 @@ from app.services.question_grouping import split_base_and_part
 
 MODEL = settings.grading_model
 
+# Phase 3: prompt version label. Bump this when SYSTEM_PROMPT changes.
+# The matching row is seeded in init_db so the label is always queryable.
+PROMPT_VERSION = "v1"
+
 # Copied verbatim from mini_grader.py — DO NOT reword. See HANDOVER.md.
 SYSTEM_PROMPT = """You are grading a student's handwritten exam answer for a structured,
 board-style exam. You will be shown one or more pages that
@@ -89,6 +93,11 @@ class GradedUnitResult:
     confidence: str
     grading_status: str  # complete | failed
     error_message: str | None = None
+    # Phase 3 audit trail (never store identity data here)
+    model_name: str | None = None
+    prompt_version: str | None = None
+    raw_response_json: str | None = None
+    request_payload_summary: str | None = None
 
 
 def _get_client() -> OpenAI | None:
@@ -187,7 +196,11 @@ def _match_part_scores(unit: QuestionUnit, part_scores: list[dict]) -> list[dict
     return matched
 
 
-def _invalid_score_result(unit: QuestionUnit, message: str, flags: list[str]) -> GradedUnitResult:
+def _invalid_score_result(
+    unit: QuestionUnit, message: str, flags: list[str],
+    model_name: str | None = None, prompt_version: str | None = None,
+    raw_response_json: str | None = None, request_payload_summary: str | None = None,
+) -> GradedUnitResult:
     return GradedUnitResult(
         question_number=unit.question_number,
         ai_score=None,
@@ -199,6 +212,10 @@ def _invalid_score_result(unit: QuestionUnit, message: str, flags: list[str]) ->
         confidence="low",
         grading_status="failed",
         error_message=message,
+        model_name=model_name,
+        prompt_version=prompt_version,
+        raw_response_json=raw_response_json,
+        request_payload_summary=request_payload_summary,
     )
 
 
@@ -260,6 +277,22 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
     except Exception as exc:  # noqa: BLE001 — API/parse failures must never crash the request
         return _sentinel_error(batch, str(exc))
 
+    # Phase 3: build audit data early so validation failures also carry it
+    prompt_text = _build_prompt_text(batch, qb_items_by_number)
+    payload_summary = json.dumps({
+        "image_count": len(image_paths),
+        "prompt_text_chars": len(prompt_text),
+        "question_numbers": [u.question_number for u in batch],
+        "prompt_version": PROMPT_VERSION,
+        "model": MODEL,
+    })
+    raw_response_for_audit = json.dumps(parsed, ensure_ascii=False)
+    _audit_kw = dict(
+        model_name=MODEL, prompt_version=PROMPT_VERSION,
+        raw_response_json=raw_response_for_audit,
+        request_payload_summary=payload_summary,
+    )
+
     raw_part_scores = parsed.get("part_scores", [])
     part_scores, score_error = _validated_scores(raw_part_scores if isinstance(raw_part_scores, list) else [])
     flags = parsed.get("flags", []) or []
@@ -268,11 +301,11 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
     confidence = parsed.get("confidence", "low")
 
     if score_error:
-        return [_invalid_score_result(unit, score_error, flags) for unit in batch]
+        return [_invalid_score_result(unit, score_error, flags, **_audit_kw) for unit in batch]
 
     authoritative_maxima = [qb_items_by_number[unit.question_number].marks_possible for unit in batch]
     if any(maximum is None for maximum in authoritative_maxima):
-        return [_invalid_score_result(unit, "authoritative Question Bank maximum is unavailable", flags) for unit in batch]
+        return [_invalid_score_result(unit, "authoritative Question Bank maximum is unavailable", flags, **_audit_kw) for unit in batch]
     authoritative_total = sum(int(maximum) for maximum in authoritative_maxima)
     reported_possible = parsed.get("total_possible")
     reported_awarded = parsed.get("total_awarded")
@@ -281,13 +314,13 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
         or not isinstance(reported_possible, int)
         or reported_possible != authoritative_total
     ):
-        return [_invalid_score_result(unit, f"AI total_possible must equal authoritative maximum {authoritative_total}", flags) for unit in batch]
+        return [_invalid_score_result(unit, f"AI total_possible must equal authoritative maximum {authoritative_total}", flags, **_audit_kw) for unit in batch]
     if isinstance(reported_awarded, bool) or not isinstance(reported_awarded, int):
-        return [_invalid_score_result(unit, "AI total_awarded must be an integer", flags) for unit in batch]
+        return [_invalid_score_result(unit, "AI total_awarded must be an integer", flags, **_audit_kw) for unit in batch]
     if reported_awarded != sum(score["marks_awarded"] for score in part_scores):
-        return [_invalid_score_result(unit, "AI total_awarded does not equal the supplied part scores", flags) for unit in batch]
+        return [_invalid_score_result(unit, "AI total_awarded does not equal the supplied part scores", flags, **_audit_kw) for unit in batch]
     if sum(score["marks_possible"] for score in part_scores) != authoritative_total:
-        return [_invalid_score_result(unit, f"AI part maxima must sum to authoritative maximum {authoritative_total}", flags) for unit in batch]
+        return [_invalid_score_result(unit, f"AI part maxima must sum to authoritative maximum {authoritative_total}", flags, **_audit_kw) for unit in batch]
 
     # TechDoc §7 known-bug fix (HANDOVER.md): confidence must not stay "high" when
     # flags are present. Downgrade at the point of ingestion, not left to the UI.
@@ -300,7 +333,11 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
     for unit in batch:
         matched_scores = _match_part_scores(unit, part_scores)
         if not matched_scores:
-            results.append(_invalid_score_result(unit, "unmatched part in batched response", flags))
+            results.append(
+                _invalid_score_result(
+                    unit, "unmatched part in batched response", flags, **_audit_kw,
+                )
+            )
             continue
 
         authoritative_max = int(qb_items_by_number[unit.question_number].marks_possible)
@@ -311,7 +348,7 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
                 _invalid_score_result(
                     unit,
                     f"AI maximum for {unit.question_number} must equal authoritative maximum {authoritative_max}",
-                    flags,
+                    flags, **_audit_kw,
                 )
             )
             continue
@@ -326,6 +363,7 @@ def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[Gra
                 flags=list(flags),
                 confidence=confidence,
                 grading_status="complete",
+                **_audit_kw,
             )
         )
 

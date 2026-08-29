@@ -8,14 +8,16 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.database import get_db
-from app.db.models import AnswerSheet, GradingResult, Project, QuestionBankItem, QuestionGroup
+from app.db.models import AnswerSheet, GradingJob, GradingResult, Project, QuestionBankItem, QuestionGroup
 from app.schemas.models import (
     AnswerSheetResultsResponse,
     AnswerSheetResultsSummary,
     ExaminerConfirmRequest,
+    GradeEnqueueResponse,
     GradeTriggerResponse,
     GradingResultResponse,
     GradingResultSummary,
+    JobStatusResponse,
     PartScore,
     SectionSummary,
 )
@@ -127,6 +129,11 @@ def _result_to_response(result: GradingResult, project_id: str, region_map_keys:
         error_message=result.error_message,
         graded_at=result.graded_at,
         region_preview_urls=_region_preview_urls(project_id, result.answer_sheet_id, result.question_number, region_map_keys),
+        # Phase 3 audit trail
+        model_name=result.model_name,
+        prompt_version=result.prompt_version,
+        raw_response_json=result.raw_response_json,
+        request_payload_summary=result.request_payload_summary,
     )
 
 
@@ -205,8 +212,20 @@ def _build_summary(db: Session, project_id: str, sheet_id: str) -> AnswerSheetRe
     )
 
 
-@router.post("/{project_id}/answer-sheets/{answer_sheet_id}/grade", response_model=GradeTriggerResponse)
-def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> GradeTriggerResponse:
+@router.post(
+    "/{project_id}/answer-sheets/{answer_sheet_id}/grade",
+    response_model=GradeEnqueueResponse,
+    status_code=202,
+)
+def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends(get_db)) -> GradeEnqueueResponse:
+    """Enqueue a grading job for background processing (Phase 1 async).
+
+    All pre-flight validation runs synchronously so errors are returned
+    immediately. The actual grading pipeline (first-N filter, DashScope
+    API calls, result writing) runs in the background worker.
+
+    Returns 202 Accepted with a job_id for polling via GET /jobs/{job_id}.
+    """
     project = _get_project_or_404(project_id, db)
     sheet = _get_sheet_or_404(project_id, answer_sheet_id, db)
 
@@ -233,38 +252,45 @@ def trigger_grading(project_id: str, answer_sheet_id: str, db: Session = Depends
     # Edge Case C (idempotency): an already-processed sheet is never re-processed
     # merely because examiner review is still outstanding.
     if sheet.grading_status in ("complete", "review_required"):
-        existing = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all()
-        return GradeTriggerResponse(
+        # Return a synthetic enqueue response so the frontend treats it as
+        # "already done" and reloads results immediately.
+        return GradeEnqueueResponse(
+            job_id="already-processed",
             answer_sheet_id=sheet.id,
-            grading_status=sheet.grading_status,
-            graded=[r.question_number for r in existing if r.choice_status == "graded"],
-            skipped_blank=[r.question_number for r in existing if r.choice_status == "skipped_blank"],
-            skipped_beyond_n=[r.question_number for r in existing if r.choice_status == "skipped_beyond_n"],
-            flagged_ambiguous=[r.question_number for r in existing if r.choice_status == "flagged_ambiguous"],
-            failed=[r.question_number for r in existing if r.grading_status == "failed"],
         )
     if sheet.grading_status == "in_progress":
         raise HTTPException(status_code=409, detail="Grading is already in progress for this sheet.")
 
     sheet.grading_status = "in_progress"
-    db.commit()
 
-    try:
-        return _trigger_grading_inner(project_id, answer_sheet_id, db, sheet)
-    except HTTPException:
-        db.rollback()
-        failed_sheet = db.get(AnswerSheet, sheet.id)
-        if failed_sheet and failed_sheet.grading_status == "in_progress":
-            failed_sheet.grading_status = "failed"
-            db.commit()
-        raise
-    except Exception as exc:  # noqa: BLE001 — preserve retryability after unexpected processing failures
-        db.rollback()
-        failed_sheet = db.get(AnswerSheet, sheet.id)
-        if failed_sheet:
-            failed_sheet.grading_status = "failed"
-            db.commit()
-        raise HTTPException(status_code=500, detail="Grading failed unexpectedly; retry the answer sheet after reviewing the saved error logs.") from exc
+    # Create the async job before committing the sheet status change.
+    job = GradingJob(answer_sheet_id=sheet.id, status="pending")
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    return GradeEnqueueResponse(job_id=job.id, answer_sheet_id=sheet.id)
+
+
+def get_job_status(job_id: str, db: Session = Depends(get_db)) -> JobStatusResponse:
+    """Top-level endpoint for polling a grading job's status (Phase 1).
+
+    Registered at ``GET /jobs/{job_id}`` in main.py (outside the
+    ``/projects`` prefix) so the frontend can poll without knowing the
+    project context.
+    """
+    job = db.get(GradingJob, job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found.")
+    return JobStatusResponse(
+        job_id=job.id,
+        answer_sheet_id=job.answer_sheet_id,
+        status=job.status,
+        created_at=job.created_at,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+        error=job.error,
+    )
 
 
 def _trigger_grading_inner(project_id: str, answer_sheet_id: str, db: Session, sheet: AnswerSheet) -> GradeTriggerResponse:
@@ -338,8 +364,14 @@ def _trigger_grading_inner(project_id: str, answer_sheet_id: str, db: Session, s
             transcription_summary=graded.transcription_summary, flags_json=json.dumps(graded.flags),
             confidence=graded.confidence,
             ink_status="attempted",
-            choice_status="graded" if graded.grading_status == "complete" else "graded",
+            # Only attempted items reach grade_units — the first-N filter
+            # routes ambiguous/blank/no_regions separately.
+            choice_status="graded",
             grading_status=graded.grading_status, error_message=graded.error_message, graded_at=now,
+            # Phase 3 audit trail
+            model_name=graded.model_name, prompt_version=graded.prompt_version,
+            raw_response_json=graded.raw_response_json,
+            request_payload_summary=graded.request_payload_summary,
         )
 
     overflow_by_key = {
