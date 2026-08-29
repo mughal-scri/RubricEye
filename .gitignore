@@ -22,7 +22,7 @@
 temp/
 .qoder/
 .qoder/*
-frontend/src/assets/
+# Assets are committed; ignore only generated/user-specific files if needed.
 # ============================
 # Python (backend)
 # ============================
