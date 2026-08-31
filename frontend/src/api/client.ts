@@ -522,6 +522,10 @@ export interface GradingResult {
   error_message: string | null;
   graded_at: string | null;
   region_preview_urls: string[];
+  // Phase 5/6 review state and question context
+  question_text: string | null;
+  key_points: string | null;
+  review_state: "ai_draft" | "confirmed" | "overridden" | "ambiguous" | "closed" | "failed";
 }
 
 export interface GradingResultSummary {
@@ -645,4 +649,43 @@ export function confirmGradingResult(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   });
+}
+
+// ============================================================
+// Phase 5 — Review Queue
+// ============================================================
+
+export interface ReviewQueueItem {
+  question_number: string;
+  ai_score: number | null;
+  ai_total_possible: number | null;
+  confidence: string;
+  choice_status: string;
+  grading_status: string;
+  truncation_flag: boolean;
+  ink_status: string;
+  ink_density_ratio: number | null;
+  review_state: string;
+  question_text: string | null;
+  key_points: string | null;
+}
+
+export interface ReviewQueueSheet {
+  answer_sheet_id: string;
+  roll_number: string;
+  grading_status: string;
+  total_reviewable: number;
+  reviewed_count: number;
+  pending_count: number;
+  pending_items: ReviewQueueItem[];
+}
+
+export interface ProjectReviewQueueResponse {
+  project_id: string;
+  total_pending: number;
+  sheets: ReviewQueueSheet[];
+}
+
+export function getProjectReviewQueue(projectId: string): Promise<ProjectReviewQueueResponse> {
+  return request(`/projects/${projectId}/review-queue`);
 }

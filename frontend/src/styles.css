@@ -3293,3 +3293,74 @@ textarea.form-input {
     width: 100%;
   }
 }
+
+/* ============================================================
+   Phase 5 — Review Queue Dashboard
+   ============================================================ */
+
+.review-queue-dashboard {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.review-sheet-card {
+  padding: 0;
+  overflow: hidden;
+}
+
+.review-sheet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.85rem 1.1rem;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+
+.review-sheet-header:hover {
+  background: var(--color-slate-50);
+}
+
+.review-sheet-title {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.review-sheet-stats {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--color-slate-600);
+}
+
+.review-progress-bar {
+  display: inline-block;
+  width: 80px;
+  height: 6px;
+  background: var(--color-slate-200);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.review-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--color-emerald-600);
+  border-radius: 3px;
+  transition: width 0.25s ease;
+}
+
+.review-sheet-body {
+  border-top: 1px solid var(--border-hairline);
+  padding: 1rem 1.1rem;
+}
+
+.review-sheet-actions {
+  margin-top: 0.75rem;
+  display: flex;
+  justify-content: flex-end;
+}

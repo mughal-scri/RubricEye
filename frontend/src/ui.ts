@@ -47,3 +47,21 @@ export function formatDate(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
 }
+
+export function reviewStateBadge(state: string): { label: string; tone: StatusTone } {
+  switch (state) {
+    case "confirmed":
+      return { label: "Confirmed", tone: "success" };
+    case "overridden":
+      return { label: "Score overridden", tone: "indigo" };
+    case "ambiguous":
+      return { label: "Ambiguous — needs attention", tone: "danger" };
+    case "closed":
+      return { label: "Closed", tone: "slate" };
+    case "failed":
+      return { label: "Failed", tone: "danger" };
+    case "ai_draft":
+    default:
+      return { label: "AI draft", tone: "warning" };
+  }
+}

@@ -11,6 +11,7 @@ import RubricStudioStandalone from "./pages/RubricStudioStandalone";
 import ProjectList from "./pages/ProjectList";
 import QuestionBankSetup from "./pages/QuestionBankSetup";
 import QuestionGroupSetup from "./pages/QuestionGroupSetup";
+import ReviewQueue from "./pages/ReviewQueue";
 import TemplateMapReview from "./pages/TemplateMapReview";
 import UploadAnswerSheet from "./pages/UploadAnswerSheet";
 import Trash from "./pages/Trash";
@@ -50,6 +51,7 @@ export default function App() {
             <Route path="/projects/:projectId/rubric-studio" element={<RubricStudio />} />
             <Route path="/projects/:projectId/rubric-alignment" element={<RubricAlignment />} />
             <Route path="/projects/:projectId/question-groups" element={<QuestionGroupSetup />} />
+            <Route path="/projects/:projectId/review-queue" element={<ReviewQueue />} />
             <Route path="/projects/:projectId/upload" element={<UploadAnswerSheet />} />
             <Route path="/projects/:projectId/answer-sheets/:sheetId" element={<AnswerSheetDetailPage />} />
             <Route path="/projects/:projectId/answer-sheets/:sheetId/results" element={<GradingResults />} />

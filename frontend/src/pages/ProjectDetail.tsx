@@ -1,7 +1,7 @@
-import { ArrowLeft, CheckCircle2, Clock3, Eye, FileCheck2, FileDown, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Trash2, Upload } from "lucide-react";
+import { ArrowLeft, CheckCircle2, Clock3, ClipboardCheck, Eye, FileCheck2, FileDown, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, pollGradingJob, ProjectDetail as ProjectDetailType, restoreAnswerSheet } from "../api/client";
+import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, getProjectReviewQueue, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, pollGradingJob, ProjectDetail as ProjectDetailType, restoreAnswerSheet } from "../api/client";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
 
 export default function ProjectDetailPage() {
@@ -10,6 +10,7 @@ export default function ProjectDetailPage() {
   const [sheets, setSheets] = useState<AnswerSheetSummary[]>([]);
   const [deletedSheets, setDeletedSheets] = useState<AnswerSheetSummary[]>([]);
   const [questionBankCount, setQuestionBankCount] = useState(0);
+  const [reviewPending, setReviewPending] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [gradingSheetId, setGradingSheetId] = useState<string | null>(null);
@@ -19,12 +20,13 @@ export default function ProjectDetailPage() {
     if (!projectId) return;
     setLoading(true);
     setError("");
-    Promise.all([getProject(projectId), listAnswerSheets(projectId), listDeletedAnswerSheets(projectId), listQuestionBank(projectId)])
-      .then(([projectData, sheetData, deletedSheetData, qbData]) => {
+    Promise.all([getProject(projectId), listAnswerSheets(projectId), listDeletedAnswerSheets(projectId), listQuestionBank(projectId), getProjectReviewQueue(projectId).catch(() => ({ total_pending: 0, sheets: [] }))])
+      .then(([projectData, sheetData, deletedSheetData, qbData, queueData]) => {
         setProject(projectData);
         setSheets(sheetData);
         setDeletedSheets(deletedSheetData);
         setQuestionBankCount(qbData.items.length);
+        setReviewPending(queueData.total_pending);
       })
       .catch((err) => setError(errorMessage(err)))
       .finally(() => setLoading(false));
@@ -96,6 +98,7 @@ export default function ProjectDetailPage() {
           <Link to={`/projects/${projectId}/template-map`} className="btn btn-secondary"><Layers size={16} /> Template map</Link>
           <Link to={`/projects/${projectId}/question-bank`} className="btn btn-secondary"><ListChecks size={16} /> Question bank</Link>
           <Link to={`/projects/${projectId}/question-groups`} className="btn btn-secondary"><Sparkles size={16} /> Question groups</Link>
+          {reviewPending > 0 && <Link to={`/projects/${projectId}/review-queue`} className="btn btn-secondary"><ClipboardCheck size={16} /> Review queue <span className="badge badge-warning">{reviewPending}</span></Link>}
           {project.rubric_source_mode === "studio" && <><Link to={`/projects/${projectId}/rubric-studio`} className="btn btn-secondary"><Sparkles size={16} /> Rubric Studio</Link>{!project.rubric_locked && <Link to={`/projects/${projectId}/rubric-alignment`} className="btn btn-primary"><ListChecks size={16} /> Review alignment</Link>}</>}
           {project.rubric_download_url && <a href={fileUrl(project.rubric_download_url)} download="rubric.pdf" className="btn btn-secondary"><FileDown size={16} /> Download rubric</a>}
           {ready ? <Link to={`/projects/${projectId}/upload`} className="btn btn-primary"><Upload size={16} /> Upload answer sheet</Link> : <button type="button" className="btn btn-secondary" disabled title="Confirm the template map and question bank first"><Upload size={16} /> Upload locked</button>}
