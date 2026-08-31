@@ -19,6 +19,9 @@ from app.schemas.models import (
     GradingResultSummary,
     JobStatusResponse,
     PartScore,
+    ProjectReviewQueueResponse,
+    ReviewQueueItem,
+    ReviewQueueSheet,
     SectionSummary,
 )
 from app.services import first_n_filter, grading, storage
@@ -106,7 +109,37 @@ def _region_preview_urls(project_id: str, sheet_id: str, question_number: str, r
     return urls
 
 
-def _result_to_response(result: GradingResult, project_id: str, region_map_keys: list[str]) -> GradingResultResponse:
+def _compute_review_state(result: GradingResult) -> str:
+    """Compute a human-readable review state label from the result's fields.
+
+    States:
+        ai_draft   — not reviewed, choice_status=graded, has ai_score
+        confirmed  — reviewed, human score matches AI (or AI was null)
+        overridden — reviewed, human score differs from AI
+        ambiguous  — choice_status=flagged_ambiguous, not yet reviewed
+        closed     — choice_status in (skipped_blank, skipped_beyond_n)
+        failed     — grading_status=failed
+    """
+    if result.grading_status == "failed":
+        return "failed"
+    if result.choice_status in ("skipped_blank", "skipped_beyond_n"):
+        return "closed"
+    if result.choice_status == "flagged_ambiguous" and not result.reviewed:
+        return "ambiguous"
+    if result.reviewed:
+        if result.ai_score is not None and result.human_confirmed_score != result.ai_score:
+            return "overridden"
+        return "confirmed"
+    return "ai_draft"
+
+
+def _result_to_response(
+    result: GradingResult,
+    project_id: str,
+    region_map_keys: list[str],
+    question_bank: dict[str, QuestionBankItem] | None = None,
+) -> GradingResultResponse:
+    qb = (question_bank or {}).get(result.question_number)
     return GradingResultResponse(
         id=result.id,
         answer_sheet_id=result.answer_sheet_id,
@@ -134,6 +167,10 @@ def _result_to_response(result: GradingResult, project_id: str, region_map_keys:
         prompt_version=result.prompt_version,
         raw_response_json=result.raw_response_json,
         request_payload_summary=result.request_payload_summary,
+        # Phase 5/6 review state and question context
+        question_text=qb.question_text if qb else None,
+        key_points=qb.key_points if qb else None,
+        review_state=_compute_review_state(result),
     )
 
 
@@ -408,10 +445,14 @@ def list_results(project_id: str, answer_sheet_id: str, db: Session = Depends(ge
     region_map_keys = list(json.loads(sheet.question_region_map_json or "{}").keys())
 
     results = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all()
+    question_bank = {
+        item.question_number: item
+        for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
+    }
     return AnswerSheetResultsResponse(
         answer_sheet_id=sheet.id,
         grading_status=sheet.grading_status,
-        results=[_result_to_response(r, project_id, region_map_keys) for r in results],
+        results=[_result_to_response(r, project_id, region_map_keys, question_bank) for r in results],
         summary=_build_summary(db, project_id, sheet.id),
         report_ready=bool(sheet.report_path),
         report_download_url=(f"/files/projects/{project_id}/answer_sheets/{sheet.id}/examiner_report.pdf" if sheet.report_path else None),
@@ -436,7 +477,11 @@ def get_result(
     if not result:
         raise HTTPException(status_code=404, detail="Grading result not found for this question.")
     region_map_keys = list(json.loads(sheet.question_region_map_json or "{}").keys())
-    return _result_to_response(result, project_id, region_map_keys)
+    question_bank = {
+        item.question_number: item
+        for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
+    }
+    return _result_to_response(result, project_id, region_map_keys, question_bank)
 
 
 @router.post(
@@ -496,4 +541,8 @@ def confirm_result(
     db.commit()
 
     region_map_keys = list(json.loads(sheet.question_region_map_json or "{}").keys())
-    return _result_to_response(result, project_id, region_map_keys)
+    question_bank = {
+        item.question_number: item
+        for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
+    }
+    return _result_to_response(result, project_id, region_map_keys, question_bank)

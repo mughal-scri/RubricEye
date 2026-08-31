@@ -282,6 +282,10 @@ class GradingResultResponse(BaseModel):
     prompt_version: str | None = None
     raw_response_json: str | None = None
     request_payload_summary: str | None = None
+    # Phase 5/6 review state and question context
+    question_text: str | None = None
+    key_points: str | None = None
+    review_state: str = "ai_draft"  # ai_draft | confirmed | overridden | ambiguous | closed | failed
 
 
 class GradingResultSummary(BaseModel):
@@ -356,3 +360,42 @@ class JobStatusResponse(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     error: str | None = None
+
+
+# ============================================================
+# Phase 5 — Review Queue
+# ============================================================
+
+
+class ReviewQueueItem(BaseModel):
+    """One pending review item in the project-level review queue."""
+    question_number: str
+    ai_score: int | None
+    ai_total_possible: int | None
+    confidence: str
+    choice_status: str
+    grading_status: str
+    truncation_flag: bool
+    ink_status: str
+    ink_density_ratio: float | None
+    review_state: str
+    question_text: str | None = None
+    key_points: str | None = None
+
+
+class ReviewQueueSheet(BaseModel):
+    """One answer sheet's review status within the project-level queue."""
+    answer_sheet_id: str
+    roll_number: str
+    grading_status: str
+    total_reviewable: int
+    reviewed_count: int
+    pending_count: int
+    pending_items: list[ReviewQueueItem]
+
+
+class ProjectReviewQueueResponse(BaseModel):
+    """Aggregated review queue across all answer sheets in a project."""
+    project_id: str
+    total_pending: int
+    sheets: list[ReviewQueueSheet]
