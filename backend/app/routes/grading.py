@@ -27,7 +27,7 @@ from app.schemas.models import (
 from app.services import first_n_filter, grading, storage
 from app.services.paper_structure import infer_group_suggestions
 from app.services.question_grouping import resolve_region_keys_for_question
-from app.services.reporting import compute_totals
+from app.services.reporting import compute_totals, _is_reviewable
 from app.services.segmentation import safe_region_filename_key
 
 router = APIRouter(prefix="/projects", tags=["grading"])
@@ -482,6 +482,72 @@ def get_result(
         for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project_id).all()
     }
     return _result_to_response(result, project_id, region_map_keys, question_bank)
+
+
+@router.get("/{project_id}/review-queue", response_model=ProjectReviewQueueResponse)
+def get_review_queue(project_id: str, db: Session = Depends(get_db)) -> ProjectReviewQueueResponse:
+    """Return the project-level review queue: all pending examiner confirmations across sheets.
+
+    Each answer sheet with at least one reviewable-but-unreviewed GradingResult is included,
+    along with progress counts and the specific pending items. Sheets with all items reviewed
+    are excluded. The ``total_pending`` count enables the ProjectDetail badge.
+    """
+    project = _get_project_or_404(project_id, db)
+    question_bank = {
+        item.question_number: item
+        for item in db.query(QuestionBankItem).filter(QuestionBankItem.project_id == project.id).all()
+    }
+
+    sheets = (
+        db.query(AnswerSheet)
+        .filter(
+            AnswerSheet.project_id == project_id,
+            AnswerSheet.deleted_at.is_(None),
+            AnswerSheet.grading_status != "not_graded",
+        )
+        .all()
+    )
+
+    queue_sheets: list[ReviewQueueSheet] = []
+    for sheet in sheets:
+        results = db.query(GradingResult).filter(GradingResult.answer_sheet_id == sheet.id).all()
+        reviewable = [r for r in results if _is_reviewable(r)]
+        pending = [r for r in reviewable if not r.reviewed]
+        if not pending:
+            continue
+        qb_item_for = question_bank.get
+        pending_items = [
+            ReviewQueueItem(
+                question_number=r.question_number,
+                ai_score=r.ai_score,
+                ai_total_possible=r.ai_total_possible,
+                confidence=r.confidence,
+                choice_status=r.choice_status,
+                grading_status=r.grading_status,
+                truncation_flag=r.truncation_flag,
+                ink_status=r.ink_status,
+                ink_density_ratio=r.ink_density_ratio,
+                review_state=_compute_review_state(r),
+                question_text=qb_item_for(r.question_number).question_text if qb_item_for(r.question_number) else None,
+                key_points=qb_item_for(r.question_number).key_points if qb_item_for(r.question_number) else None,
+            )
+            for r in sorted(pending, key=lambda r: r.question_number)
+        ]
+        queue_sheets.append(ReviewQueueSheet(
+            answer_sheet_id=sheet.id,
+            roll_number=sheet.roll_number,
+            grading_status=sheet.grading_status,
+            total_reviewable=len(reviewable),
+            reviewed_count=len(reviewable) - len(pending),
+            pending_count=len(pending),
+            pending_items=pending_items,
+        ))
+
+    return ProjectReviewQueueResponse(
+        project_id=project_id,
+        total_pending=sum(s.pending_count for s in queue_sheets),
+        sheets=queue_sheets,
+    )
 
 
 @router.post(
