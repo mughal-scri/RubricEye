@@ -1572,6 +1572,94 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+/* Review context pane — right side of side-by-side layout */
+.review-context-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  max-height: 80vh;
+  overflow-y: auto;
+  padding-right: 0.25rem;
+}
+
+.review-context-pane .context-section {
+  background: var(--color-slate-50);
+  border: 1px solid var(--color-slate-200);
+  border-radius: var(--radius-md);
+  padding: 1rem;
+}
+
+.question-text-block {
+  background: white;
+  border-radius: var(--radius-sm);
+  margin-bottom: 0.65rem;
+  padding: 0.7rem;
+}
+
+.question-text-block p {
+  color: var(--color-slate-700);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.key-points-block {
+  border-top: 1px solid var(--color-slate-200);
+  padding-top: 0.65rem;
+}
+
+.key-points-block strong {
+  color: var(--color-slate-700);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.key-points-block p {
+  color: var(--color-slate-600);
+  font-size: 0.83rem;
+  line-height: 1.55;
+  margin-top: 0.3rem;
+  white-space: pre-wrap;
+}
+
+.rationale-panel {
+  background: var(--color-slate-50);
+  border: 1px solid var(--color-slate-200);
+  border-left: 3px solid var(--color-brand-info);
+  border-radius: var(--radius-md);
+  padding: 0.85rem 1rem;
+}
+
+.rationale-panel strong {
+  color: var(--color-slate-700);
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.rationale-panel p {
+  color: var(--color-slate-600);
+  font-size: 0.83rem;
+  line-height: 1.55;
+  margin-top: 0.3rem;
+  white-space: pre-wrap;
+}
+
+.text-danger {
+  color: var(--color-rose-600);
+}
+
+.review-context-pane .signal-list {
+  border-top: none;
+}
+
+.review-context-pane .transcription-block,
+.review-context-pane .part-score-block,
+.review-context-pane .flag-list,
+.review-context-pane .decision-panel {
+  margin-top: 0;
+}
+
 .lightbox {
   align-items: center;
   background: rgba(15, 23, 42, 0.86);
