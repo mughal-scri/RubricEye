@@ -123,7 +123,7 @@ export default function TemplateMapReview() {
   if (!templateMap) return null;
 
   return <div className="template-summary-page">
-    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span>/</span><span>Booklet reading</span></div>
+    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span aria-hidden="true">/</span><span>Booklet reading</span></div>
     <div className="page-header"><div className="page-title-group"><div className="eyebrow">Step 1 · Booklet understanding</div><div className="title-with-badges"><h1>Booklet reading</h1><span className={`badge ${templateMap.confirmed ? "badge-success" : "badge-warning"}`}>{templateMap.confirmed ? <><CheckCircle2 size={12} /> Confirmed</> : <><Layers size={12} /> Ready for review</>}</span></div><p>Inspect the page image and correct labels or regions before the map is locked for grading.</p></div><div className="button-row">{templateMap.confirmed ? <button type="button" className="btn btn-secondary" onClick={() => void unlock()} disabled={saving}><Unlock size={16} /> Unlock diagnostics</button> : <button type="button" className="btn btn-success" onClick={() => void confirm()} disabled={saving || rows.length === 0 || invalid.length > 0}><Lock size={16} /> Confirm and continue</button>}</div></div>
     {error && <div className="alert alert-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}
     {message && <div className="alert alert-success" role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}

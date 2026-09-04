@@ -1,6 +1,7 @@
-import { FolderKanban, Server, Sparkles, Trash2 } from "lucide-react";
+import { FolderKanban, Menu, Server, Sparkles, Trash2, X } from "lucide-react";
+import { useState } from "react";
 import logoImage from "./assets/rubriceye-logo.jpeg";
-import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Link, Route, Routes, useLocation } from "react-router-dom";
 import AnswerSheetDetailPage from "./pages/AnswerSheetDetail";
 import CreateProject from "./pages/CreateProject";
 import GradingResults from "./pages/GradingResults";
@@ -20,18 +21,31 @@ import "./styles.css";
 export default function App() {
   return (
     <BrowserRouter>
-      <div className="app-shell">
+      <AppShell />
+    </BrowserRouter>
+  );
+}
+
+function AppShell() {
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const location = useLocation();
+  const isActive = (path: string) => location.pathname === path;
+
+  return (
+    <div className="app-shell">
+        <a href="#main-content" className="skip-link">Skip to main content</a>
         <header className="app-header">
           <Link to="/" className="brand-container">
             <img src={logoImage} alt="RubricEye" className="brand-logo-image" />
             <span className="brand-title">RubricEye</span>
             <span className="brand-tag">Local assessment workspace</span>
           </Link>
-          <nav className="global-nav" aria-label="Primary navigation">
-            <Link to="/" className="global-nav-link"><FolderKanban size={15} /> Workspace</Link>
-            <Link to="/rubric-studio" className="global-nav-link"><Sparkles size={15} /> Rubric Studio</Link>
-            <Link to="/trash" className="global-nav-link"><Trash2 size={15} /> Trash</Link>
+          <nav className={`global-nav${mobileNavOpen ? " is-open" : ""}`} aria-label="Primary navigation">
+            <Link to="/" className={`global-nav-link${isActive("/") ? " is-active" : ""}`} aria-current={isActive("/") ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><FolderKanban size={15} /> Workspace</Link>
+            <Link to="/rubric-studio" className={`global-nav-link${isActive("/rubric-studio") ? " is-active" : ""}`} aria-current={isActive("/rubric-studio") ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><Sparkles size={15} /> Rubric Studio</Link>
+            <Link to="/trash" className={`global-nav-link${isActive("/trash") ? " is-active" : ""}`} aria-current={isActive("/trash") ? "page" : undefined} onClick={() => setMobileNavOpen(false)}><Trash2 size={15} /> Trash</Link>
           </nav>
+          <button type="button" className="mobile-nav-toggle" aria-label={mobileNavOpen ? "Close navigation menu" : "Open navigation menu"} aria-expanded={mobileNavOpen} onClick={() => setMobileNavOpen((prev) => !prev)}>{mobileNavOpen ? <X size={20} /> : <Menu size={20} />}</button>
           <div className="header-status" title="Your files and grading data stay in this local workspace">
             <span className="status-dot status-dot-neutral" aria-label="Local backend status not checked"></span>
             <Server size={15} />
@@ -39,7 +53,7 @@ export default function App() {
           </div>
         </header>
 
-        <main className="app-main">
+        <main className="app-main" id="main-content">
           <Routes>
             <Route path="/" element={<ProjectList />} />
             <Route path="/projects/new" element={<CreateProject />} />
@@ -58,6 +72,5 @@ export default function App() {
           </Routes>
         </main>
       </div>
-    </BrowserRouter>
   );
 }

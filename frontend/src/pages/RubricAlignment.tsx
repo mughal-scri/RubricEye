@@ -60,7 +60,7 @@ export default function RubricAlignment() {
   if (!data) return <div className="empty-state"><h3>Rubric alignment unavailable</h3><p>{error || "The Studio draft could not be loaded."}</p><button type="button" className="btn btn-secondary" onClick={load}>Retry</button></div>;
 
   return <div className="page-narrow rubric-alignment-page">
-    <div className="breadcrumb"><Link to={`/projects/${projectId}/rubric-studio`}><ArrowLeft size={14} /> Rubric Studio</Link><span>/</span><span>Alignment review</span></div>
+    <div className="breadcrumb"><Link to={`/projects/${projectId}/rubric-studio`}><ArrowLeft size={14} /> Rubric Studio</Link><span aria-hidden="true">/</span><span>Alignment review</span></div>
     <div className="page-header"><div className="page-title-group"><div className="eyebrow">Trust checkpoint</div><h1>Rubric alignment review</h1><p>Confirm that every generated criterion belongs to a canonical question from the uploaded paper, or explicitly mark it not applicable.</p></div><div className="button-row"><Link to={`/projects/${projectId}/rubric-studio`} className="btn btn-secondary">Back to Studio</Link><button type="button" className="btn btn-success" onClick={() => void approve()} disabled={!data.all_alignment_reviewed || saving !== null}><ShieldCheck size={15} /> Approve and lock</button></div></div>
     {error && <div className="alert alert-error" role="alert"><AlertCircle size={17} /><span>{error}</span></div>}
     {message && <div className="alert alert-success" role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}

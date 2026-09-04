@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { getProject, getProjectReviewQueue, ProjectDetail, ProjectReviewQueueResponse } from "../api/client";
 import { errorMessage, gradingStatusLabel, reviewStateBadge } from "../ui";
+import BrandedLoader from "../components/BrandedLoader";
 
 export default function ReviewQueue() {
   const { projectId } = useParams();
@@ -40,7 +41,7 @@ export default function ReviewQueue() {
   };
 
   if (!projectId) return null;
-  if (loading) return <div className="loading-state" role="status">Loading review queue…</div>;
+  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Loading review queue…" /></div></div>;
   if (error && !queue) return <div className="empty-state"><h3>Review queue could not be loaded</h3><p>{error}</p><button type="button" className="btn btn-primary" onClick={load}><RotateCcw size={15} /> Retry</button></div>;
   if (!project || !queue) return null;
 
@@ -50,7 +51,7 @@ export default function ReviewQueue() {
     <div>
       <div className="breadcrumb">
         <Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link>
-        <span>/</span>
+        <span aria-hidden="true">/</span>
         <span>Review queue</span>
       </div>
       <div className="page-header">
@@ -91,7 +92,7 @@ export default function ReviewQueue() {
             const progressPercent = sheet.total_reviewable > 0 ? Math.round((sheet.reviewed_count / sheet.total_reviewable) * 100) : 0;
             return (
               <article className="card review-sheet-card" key={sheet.answer_sheet_id}>
-                <div className="review-sheet-header" onClick={() => toggleExpand(sheet.answer_sheet_id)} role="button" tabIndex={0} onKeyDown={(e) => e.key === "Enter" && toggleExpand(sheet.answer_sheet_id)}>
+                <button type="button" className="review-sheet-header" onClick={() => toggleExpand(sheet.answer_sheet_id)} aria-expanded={isExpanded}>
                   <div className="review-sheet-title">
                     {isExpanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
                     <strong>Roll {sheet.roll_number}</strong>
@@ -104,7 +105,7 @@ export default function ReviewQueue() {
                     </span>
                     <span className="badge badge-warning">{sheet.pending_count} pending</span>
                   </div>
-                </div>
+                </button>
                 {isExpanded && (
                   <div className="review-sheet-body">
                     <div className="table-container">

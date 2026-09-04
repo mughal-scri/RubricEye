@@ -68,7 +68,7 @@ export default function QuestionGroupSetup() {
   if (loading) return <div className="loading-state" role="status">Loading question groups…</div>;
 
   return <div>
-    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span>/</span><span>Question groups</span></div>
+    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span aria-hidden="true">/</span><span>Question groups</span></div>
     <div className="page-header"><div className="page-title-group"><div className="eyebrow">Assessment setup</div><h1>Question groups</h1><p>Review detected choice structures, then define or confirm the rules used for scoring.</p></div></div>
     {error && <div className="alert alert-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}
     {message && <div className="alert alert-success" role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}

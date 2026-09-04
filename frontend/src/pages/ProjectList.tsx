@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { deleteProject, listProjects, ProjectSummary } from "../api/client";
 import { errorMessage, formatDate } from "../ui";
+import BrandedLoader from "../components/BrandedLoader";
 
 export default function ProjectList() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
@@ -83,7 +84,7 @@ export default function ProjectList() {
       )}
 
       {loading ? (
-        <div className="loading-state" role="status">Loading projects…</div>
+        <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Loading projects…" /></div></div>
       ) : projects.length === 0 ? (
         <div className="empty-state">
           <div className="empty-state-icon"><Layers size={28} /></div>

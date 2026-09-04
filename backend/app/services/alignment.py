@@ -47,28 +47,111 @@ def _sample_corresponding(reference: list[int], detected: list[int], limit: int 
     return sample(reference), sample(detected)
 
 
+def _filter_matches_ratio(
+    distances: list[float], ratio: float = 0.85
+) -> list[int]:
+    """Return indices passing Lowe-style ratio test on 1-D distance lists."""
+    if len(distances) < 2:
+        return list(range(len(distances)))
+    sorted_dist = sorted(distances)
+    threshold = sorted_dist[0] / max(sorted_dist[1], 1e-6) if sorted_dist[1] > 0 else 0.0
+    if threshold < ratio:
+        return []
+    best = sorted_dist[0]
+    return [i for i, d in enumerate(distances) if d <= best * (1.0 + ratio)]
+
+
+def _match_line_pairs(
+    reference: list[int], detected: list[int], max_distance: float = 80.0
+) -> tuple[list[float], list[float]]:
+    """Match reference lines to nearest detected lines with outlier rejection.
+
+    For each reference line position, finds the nearest detected line.  Pairs
+    where no detected line is within *max_distance* pixels are discarded.  This
+    is more robust than uniform sampling when the scan has slightly different
+    line counts (missed faint lines or merged clusters).
+    """
+    if len(reference) < 2 or len(detected) < 2:
+        return [], []
+    ref_arr = np.array(reference, dtype=np.float64)
+    det_arr = np.array(detected, dtype=np.float64)
+    # Distance matrix: rows=reference, cols=detected
+    dist_matrix = np.abs(ref_arr[:, None] - det_arr[None, :])
+    best_indices = np.argmin(dist_matrix, axis=1)
+    best_distances = dist_matrix[np.arange(len(ref_arr)), best_indices]
+    matched: list[tuple[float, float]] = []
+    for i, (idx, dist) in enumerate(zip(best_indices, best_distances)):
+        if dist <= max_distance:
+            matched.append((float(ref_arr[i]), float(det_arr[idx])))
+    if len(matched) < 2:
+        return [], []
+    return [m[0] for m in matched], [m[1] for m in matched]
+
+
 def _collect_grid_points(
     alignment_reference: dict,
     page_number: int,
     scan_h: list[int],
     scan_v: list[int],
 ) -> tuple[np.ndarray, np.ndarray]:
+    """Build grid intersection point pairs using nearest-neighbor line matching.
+
+    Previously used uniform sampling which produces systematic mis-pairing
+    when the reference and scan have different line counts.  Now uses
+    nearest-neighbor distance matching so each reference line is paired with
+    the physically closest detected line.
+    """
     pages = alignment_reference.get("pages", {})
     page_ref = pages.get(str(page_number), {})
     ref_h = _cluster_positions(page_ref.get("horizontal_lines", []))
     ref_v = _cluster_positions(page_ref.get("vertical_lines", []))
-    template_h, detected_h = _sample_corresponding(ref_h, scan_h)
-    template_v, detected_v = _sample_corresponding(ref_v, scan_v)
-    if len(template_h) < 2 or len(template_v) < 2:
+    matched_h_ref, matched_h_det = _match_line_pairs(ref_h, scan_h)
+    matched_v_ref, matched_v_det = _match_line_pairs(ref_v, scan_v)
+    if len(matched_h_ref) < 2 or len(matched_v_ref) < 2:
         return np.array([], dtype=np.float32), np.array([], dtype=np.float32)
 
     src_points: list[list[float]] = []
     dst_points: list[list[float]] = []
-    for ref_y, scan_y in zip(template_h, detected_h):
-        for ref_x, scan_x in zip(template_v, detected_v):
+    for ref_y, scan_y in zip(matched_h_ref, matched_h_det):
+        for ref_x, scan_x in zip(matched_v_ref, matched_v_det):
             src_points.append([ref_x, ref_y])
             dst_points.append([scan_x, scan_y])
     return np.array(src_points, dtype=np.float32), np.array(dst_points, dtype=np.float32)
+
+
+def _compute_scale_translate(
+    ref_h: list[int],
+    scan_h: list[int],
+    ref_v: list[int],
+    scan_v: list[int],
+    min_pairs: int = 2,
+) -> np.ndarray | None:
+    """Estimate scale + translate from matched line positions.
+
+    Uses the outermost reliably matched line pairs per axis to compute a
+    uniform scale and separate x/y translation.  More accurate than the
+    pure-scale fallback (which ignores page margins) and sufficient for
+    the common case where the scan is slightly resized and shifted.
+    """
+    h_ref, h_det = _match_line_pairs(ref_h, scan_h)
+    v_ref, v_det = _match_line_pairs(ref_v, scan_v)
+    if len(h_ref) < min_pairs or len(v_ref) < min_pairs:
+        return None
+    # Scale from the span between outermost matched pairs.
+    h_span_ref = h_ref[-1] - h_ref[0]
+    h_span_det = h_det[-1] - h_det[0]
+    v_span_ref = v_ref[-1] - v_ref[0]
+    v_span_det = v_det[-1] - v_det[0]
+    if abs(h_span_ref) < 1.0 or abs(v_span_ref) < 1.0:
+        return None
+    scale = (h_span_det / h_span_ref + v_span_det / v_span_ref) / 2.0
+    if scale <= 0 or not np.isfinite(scale):
+        return None
+    tx = v_det[0] - scale * v_ref[0]
+    ty = h_det[0] - scale * h_ref[0]
+    return np.array(
+        [[scale, 0, tx], [0, scale, ty], [0, 0, 1]], dtype=np.float64
+    )
 
 
 def _valid_homography(matrix: np.ndarray | None, ref_w: int, ref_h: int, scan_w: int, scan_h: int) -> bool:
@@ -138,6 +221,14 @@ class AlignmentResult:
 
 
 def compute_alignment_result(scan_image_path: str, alignment_reference: dict, page_number: int) -> AlignmentResult:
+    """Compute the best alignment matrix for a scanned page.
+
+    Cascade order (most accurate first):
+      1. feature — SIFT/ORB keypoint homography (perspective-capable)
+      2. scale_translate — matched grid-line scale + offset (most scans)
+      3. grid — line-intersection homography with NN-matched correspondences
+      4. scale_only — pure corner scale (last resort, no translation)
+    """
     image = cv2.imread(scan_image_path)
     if image is None:
         return AlignmentResult(None, "failed", "none")
@@ -148,19 +239,32 @@ def compute_alignment_result(scan_image_path: str, alignment_reference: dict, pa
     ref_w = int(page_ref.get("width") or image.shape[1])
     ref_h = int(page_ref.get("height") or image.shape[0])
 
+    # Method 1: Feature-based homography (most accurate, handles perspective).
     reference_path = page_ref.get("reference_image_path")
     if reference_path and Path(reference_path).exists():
         feature_matrix = _feature_homography(reference_path, image, ref_w, ref_h)
         if _valid_homography(feature_matrix, ref_w, ref_h, image.shape[1], image.shape[0]):
             return AlignmentResult(feature_matrix, "feature", "high")
 
+    # Collect clustered reference line positions for methods 2–3.
+    ref_h_lines = _cluster_positions(page_ref.get("horizontal_lines", []))
+    ref_v_lines = _cluster_positions(page_ref.get("vertical_lines", []))
+
+    # Method 2: Scale + translate from matched grid lines.
+    # Sufficient for the common case where the scan is slightly resized and
+    # shifted on the scanner bed — the most frequent real-world scenario.
+    st_matrix = _compute_scale_translate(ref_h_lines, scan_h, ref_v_lines, scan_v)
+    if st_matrix is not None:
+        return AlignmentResult(st_matrix, "scale_translate", "high")
+
+    # Method 3: Grid-based homography from NN-matched line intersections.
     src_pts, dst_pts = _collect_grid_points(alignment_reference, page_number, scan_h, scan_v)
     if src_pts.size >= 8 and dst_pts.size >= 8:
         line_matrix, _ = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC, 5.0)
         if _valid_homography(line_matrix, ref_w, ref_h, image.shape[1], image.shape[0]):
             return AlignmentResult(line_matrix, "grid", "medium")
 
-    # Safe fallback for the common case where the same page is only resized.
+    # Method 4: Pure scale fallback (no translation — last resort).
     scale_x = image.shape[1] / ref_w if ref_w else 1.0
     scale_y = image.shape[0] / ref_h if ref_h else 1.0
     return AlignmentResult(np.array([[scale_x, 0, 0], [0, scale_y, 0], [0, 0, 1]], dtype=np.float64), "scale_only", "low")

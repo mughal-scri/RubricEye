@@ -28,7 +28,7 @@ export default function UploadAnswerSheet() {
   if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Uploading and preparing booklet…" /><p>The PDF is being converted into ordered pages and prepared against the confirmed template.</p></div></div>;
 
   return <div className="page-narrow">
-    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span>/</span><span>Upload answer sheet</span></div>
+    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span aria-hidden="true">/</span><span>Upload answer sheet</span></div>
     <div className="page-header"><div className="page-title-group"><div className="eyebrow">Answer sheet intake</div><h1>Upload answer sheet</h1><p>Identify the booklet by roll number only. The original page order will be preserved.</p></div></div>
     <div className="alert alert-warning"><ShieldAlert size={19} /><div><strong>Upload answer content only.</strong><p>If a page appears to contain identity-bearing material, processing may be stopped for review. Do not upload a cover page with candidate names or signatures.</p></div></div>
     {error && <div className="alert alert-error" role="alert"><AlertCircle size={18} /><span><strong>Answer sheet could not be prepared.</strong> {error}</span></div>}

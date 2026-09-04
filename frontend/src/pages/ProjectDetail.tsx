@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, getProjectReviewQueue, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, pollGradingJob, ProjectDetail as ProjectDetailType, restoreAnswerSheet } from "../api/client";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
+import BrandedLoader from "../components/BrandedLoader";
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams();
@@ -82,12 +83,12 @@ export default function ProjectDetailPage() {
   };
 
   if (!projectId) return null;
-  if (loading) return <div className="loading-state" role="status">Loading project…</div>;
+  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Loading project…" /></div></div>;
   if (!project) return <div className="empty-state"><h3>Project unavailable</h3><p>{error || "This project could not be loaded."}</p><Link to="/" className="btn btn-secondary">Back to projects</Link></div>;
 
   return (
     <div>
-      <div className="breadcrumb"><Link to="/"><ArrowLeft size={14} /> Projects</Link><span>/</span><span>{project.name}</span></div>
+      <div className="breadcrumb"><Link to="/"><ArrowLeft size={14} /> Projects</Link><span aria-hidden="true">/</span><span>{project.name}</span></div>
       <div className="page-header">
         <div className="page-title-group">
           <div className="eyebrow">Assessment workspace</div>

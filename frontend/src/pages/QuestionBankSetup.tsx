@@ -21,6 +21,23 @@ export default function QuestionBankSetup() {
   const [saving, setSaving] = useState(false);
   const [newQuestionNumber, setNewQuestionNumber] = useState("");
   const [savedQuestion, setSavedQuestion] = useState<string | null>(null);
+  const [fadingMessage, setFadingMessage] = useState(false);
+
+  // Auto-fade success message after 2.5s
+  useEffect(() => {
+    if (!message || warning) return;
+    setFadingMessage(false);
+    const fadeTimer = setTimeout(() => setFadingMessage(true), 2000);
+    const clearTimer = setTimeout(() => { setMessage(""); setFadingMessage(false); }, 2500);
+    return () => { clearTimeout(fadeTimer); clearTimeout(clearTimer); };
+  }, [message, warning]);
+
+  // Auto-clear saved indicator after 2.5s
+  useEffect(() => {
+    if (!savedQuestion) return;
+    const timer = setTimeout(() => setSavedQuestion(null), 2500);
+    return () => clearTimeout(timer);
+  }, [savedQuestion]);
   const [unmatchedLabels, setUnmatchedLabels] = useState<string[]>([]);
 
   const load = () => {
@@ -86,11 +103,11 @@ export default function QuestionBankSetup() {
   const structureResolved = structureStatus === "resolved" || structureStatus === "resolved_without_stated_total";
 
   return <div>
-    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span>/</span><span>Question bank</span></div>
+    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span aria-hidden="true">/</span><span>Question bank</span></div>
     <div className="page-header"><div className="page-title-group"><div className="eyebrow">Assessment setup</div><div className="title-with-badges"><h1>Question bank</h1><span className={`badge ${confirmed ? "badge-success" : "badge-warning"}`}>{confirmed ? <><CheckCircle2 size={12} /> Confirmed and locked</> : "Draft · review before locking"}</span></div><p>Review extracted questions and criteria before grading. {items.length} question{items.length === 1 ? "" : "s"} · {rawTotal ?? totalMarks} raw marks{effectiveTotal !== null ? ` · ${effectiveTotal} effective marks` : ""}.</p></div>{!confirmed ? <button type="button" className="btn btn-success" onClick={confirmAndLock} disabled={saving || items.length === 0}><Lock size={16} /> Confirm and lock</button> : <button type="button" className="btn btn-secondary" onClick={unlock} disabled={saving}><Unlock size={16} /> Unlock to edit</button>}</div>
     {error && <div className="alert alert-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}
     {unmatchedLabels.length > 0 && <div className="alert alert-warning" role="alert"><AlertTriangle size={17} /><div><strong>Question Bank labels need correction.</strong><p>This label doesn’t match any region in your confirmed template map. Check the spelling/numbering against the actual booklet.</p><ul>{unmatchedLabels.map((label) => <li key={label}><code>{label}</code></li>)}</ul><Link to={`/projects/${projectId}/template-map`} className="alert-action">Check confirmed template map</Link></div></div>}
-    {message && !warning && <div className="alert alert-success" role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}
+    {message && !warning && <div className={`alert alert-success${fadingMessage ? " alert-fading" : ""}`} role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}
     {warning && <div className="alert alert-warning" role="alert"><AlertTriangle size={17} /><span><strong>Paper structure needs review.</strong> {warning}</span><Link to={`/projects/${projectId}/question-groups`} className="alert-action">Review choice groups</Link></div>}
     <div className={`structure-summary ${structureResolved ? "is-resolved" : ""}`}><div><span className="eyebrow">Assessment structure</span><strong>{structureResolved ? "Candidate maximum is resolved" : "Candidate maximum needs confirmation"}</strong><p>{effectiveTotal !== null ? `${effectiveTotal} marks count toward a candidate’s maximum` : "Confirm the question groups to calculate the candidate maximum."}{statedTotal !== null ? ` · Paper states ${statedTotal} marks.` : ""}</p></div><div className="structure-metrics"><span><b>{rawTotal ?? totalMarks}</b> raw</span><span><b>{statedTotal ?? "—"}</b> stated</span><span><b>{effectiveTotal ?? "—"}</b> effective</span><Link to={`/projects/${projectId}/question-groups`} className="btn btn-secondary btn-sm"><GraduationCap size={14} /> {groups.length ? "Review groups" : "Configure groups"}</Link></div></div>
     <div className="info-panel"><strong>Before locking</strong><p>Check question numbers, maximum marks, and key points. Optional sections are calculated from selectable groups, so raw extracted marks may be higher than the candidate’s effective maximum.</p></div>

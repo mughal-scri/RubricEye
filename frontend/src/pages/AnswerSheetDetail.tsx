@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { AnswerSheetDetail as AnswerSheetDetailType, BBox, confirmAnswerSheetAlignment, confirmAnswerSheetRegionOverflow, fileUrl, getAnswerSheet, gradeAnswerSheet, listGradingResults, pollGradingJob, TemplateRegion, updateAnswerSheetRegion } from "../api/client";
 import RegionOverlay from "../components/RegionOverlay";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
+import BrandedLoader from "../components/BrandedLoader";
 
 type CropEdit = { questionKey: string; refIndex: number; pageIndex: number; bbox: BBox };
 
@@ -102,7 +103,7 @@ export default function AnswerSheetDetailPage() {
   };
 
   if (!projectId || !sheetId) return null;
-  if (loading) return <div className="loading-state" role="status">Loading answer sheet…</div>;
+  if (loading) return <div className="page-narrow"><div className="processing-card" role="status"><BrandedLoader message="Loading answer sheet…" /></div></div>;
   if (error && !sheet) return <div className="empty-state"><h3>Answer sheet could not be loaded</h3><p>{error}</p><button type="button" className="btn btn-primary" onClick={load}><RotateCcw size={15} /> Retry</button></div>;
   if (!sheet) return null;
 
@@ -114,7 +115,7 @@ export default function AnswerSheetDetailPage() {
   const editingRegion: TemplateRegion | null = cropEdit ? { question_number: cropEdit.questionKey, part_label: "", bbox: cropEdit.bbox } : null;
 
   return <div>
-    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span>/</span><span>Roll {sheet.roll_number}</span></div>
+    <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span aria-hidden="true">/</span><span>Roll {sheet.roll_number}</span></div>
     <div className="page-header"><div className="page-title-group"><div className="eyebrow">Answer sheet inspection</div><div className="title-with-badges"><h1>Roll {sheet.roll_number}</h1><span className="badge badge-slate"><CheckCircle2 size={12} /> Prepared for review</span></div><p>{sheet.page_count} pages · Uploaded {formatDate(sheet.uploaded_at)} · {status.label}</p></div><div className="button-row">{canGrade ? <button type="button" className="btn btn-primary" onClick={grade} disabled={grading}><GraduationCap size={16} /> {grading ? "Grading…" : actionLabel}</button> : <Link to={`/projects/${projectId}/answer-sheets/${sheet.id}/results`} className="btn btn-primary"><GraduationCap size={16} /> Review results</Link>}</div></div>
 
     {error && <div className="alert alert-error" role="alert"><AlertCircle size={18} /><span><strong>Action could not be completed.</strong> {error}</span><button type="button" className="btn btn-quiet" onClick={load}>Retry</button></div>}

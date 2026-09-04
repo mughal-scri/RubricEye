@@ -17,6 +17,13 @@
   --color-brand-info: var(--color-muted-aqua);
   --color-brand-surface: var(--color-cream-base);
 
+  /* Brand scale — indigo-tinted, used by badges, buttons, focus rings, eyebrows */
+  --color-brand-50: #eef2ff;
+  --color-brand-100: #e0e7ff;
+  --color-brand-500: #6366f1;
+  --color-brand-600: #4f46e5;
+  --color-brand-700: #4338ca;
+
   /* Stitch Workspace Design System Tokens */
   --color-stitch-primary: var(--color-teal-slate);
   --color-stitch-ink: var(--color-teal-slate);
@@ -61,6 +68,8 @@
   --radius-md: 10px;
   --radius-lg: 14px;
   --radius-xl: 20px;
+
+  /* Semantic aliases — overridden by Stitch tokens in second :root block below */
 }
 
 * {
@@ -242,7 +251,7 @@ body {
 }
 
 .btn-primary:hover {
-  background: var(--color-brand-700);
+  background: linear-gradient(135deg, var(--color-brand-600), var(--color-brand-700));
   box-shadow: 0 4px 10px rgba(79, 70, 229, 0.3);
 }
 
@@ -645,6 +654,8 @@ select:focus-visible,
 
 .app-header {
   background: #111827;
+  border-bottom: 2px solid transparent;
+  border-image: linear-gradient(to right, var(--color-muted-aqua), var(--color-brand-500), var(--color-warm-coral)) 1;
 }
 
 .eyebrow {
@@ -1389,10 +1400,10 @@ select:focus-visible,
 }
 
 .evidence-header {
-  align-items: flex-start;
   border-bottom: 1px solid var(--color-slate-200);
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 1fr);
   margin-bottom: 1.1rem;
   padding-bottom: 1rem;
 }
@@ -1406,11 +1417,15 @@ select:focus-visible,
 .evidence-grid {
   display: grid;
   gap: 1rem;
-  grid-template-columns: minmax(0, 1.05fr) minmax(250px, 0.95fr);
+  grid-template-columns: minmax(0, 1fr) minmax(250px, 1fr);
 }
 
 .evidence-pane,
 .context-pane,
+.review-context-pane {
+  padding: 1.25rem;
+}
+
 .transcription-block,
 .part-score-block,
 .flag-list,
@@ -1578,8 +1593,9 @@ select:focus-visible,
   flex-direction: column;
   gap: 0.85rem;
   max-height: 80vh;
+  min-width: 0;
   overflow-y: auto;
-  padding-right: 0.25rem;
+  padding-right: 0.5rem;
 }
 
 .review-context-pane .context-section {
@@ -1658,6 +1674,12 @@ select:focus-visible,
 .review-context-pane .flag-list,
 .review-context-pane .decision-panel {
   margin-top: 0;
+}
+
+/* Question context additions inside the standard evidence context pane */
+.context-pane .key-points-block,
+.context-pane .rationale-panel {
+  margin-bottom: 0.85rem;
 }
 
 .lightbox {
@@ -1806,6 +1828,18 @@ select:focus-visible,
   .queue-header {
     grid-column: 1 / -1;
   }
+
+  /* 5b: Stacked evidence layout — explicit spacing when panels collapse */
+  .review-layout,
+  .segmentation-layout,
+  .evidence-grid {
+    gap: 1rem;
+  }
+
+  .review-context-pane {
+    max-height: none;
+    padding: 1.25rem;
+  }
 }
 
 @media (max-width: 760px) {
@@ -1829,14 +1863,27 @@ select:focus-visible,
   .next-step-panel,
   .readiness-banner,
   .section-heading,
-  .evidence-header,
   .form-actions {
     align-items: flex-start;
     flex-direction: column;
   }
 
+  .evidence-header {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
   .button-row.wrap {
     justify-content: flex-start;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem;
+  }
+
+  .button-row.wrap > * {
+    justify-content: center;
   }
 
   .form-grid,
@@ -1855,6 +1902,35 @@ select:focus-visible,
 
   .table-container {
     overflow-x: auto;
+  }
+
+  /* 5a: Review queue — stack header vertically, widen progress bar */
+  .review-sheet-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+
+  .review-sheet-stats {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .review-progress-bar {
+    flex: 1;
+    min-width: 100px;
+  }
+}
+
+@media (max-width: 500px) {
+  /* 5c: Force single column for card grid on small screens */
+  .card-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Button row stacks to single column on very small screens */
+  .button-row.wrap {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -2262,6 +2338,14 @@ select:focus-visible,
   --shadow-card: 0 1px 2px rgba(23, 33, 43, .04), 0 10px 28px rgba(23, 33, 43, .045);
   --shadow-float: 0 16px 38px rgba(23, 33, 43, .12);
   --radius-card: 16px;
+
+  /* Fluid type scale */
+  --type-h1: clamp(1.5rem, 1.2rem + 1.5vw, 2.2rem);
+  --type-h2: clamp(1.1rem, 1rem + 0.4vw, 1.3rem);
+  --type-h3: clamp(0.95rem, 0.9rem + 0.2vw, 1.1rem);
+  --type-body: 0.9rem;
+  --type-sm: 0.8125rem;
+  --type-xs: 0.75rem;
 }
 
 html {
@@ -2359,6 +2443,46 @@ body {
   color: var(--color-action-dark);
 }
 
+.global-nav-link.is-active {
+  background: var(--color-action-soft);
+  color: var(--color-action);
+}
+
+/* Skip-to-content link — visible only on keyboard focus */
+.skip-link {
+  position: absolute;
+  top: -100%;
+  left: 1rem;
+  z-index: 100;
+  padding: 0.6rem 1.2rem;
+  background: var(--color-action);
+  color: white;
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+  font-size: 0.85rem;
+  font-weight: 700;
+  text-decoration: none;
+  transition: top 0.15s ease;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+/* Mobile nav toggle — hidden on desktop */
+.mobile-nav-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  color: var(--color-ink);
+  cursor: pointer;
+  padding: 6px;
+  min-height: 36px;
+  min-width: 36px;
+}
+
 .header-status {
   gap: 7px;
   padding: 7px 10px;
@@ -2397,7 +2521,7 @@ body {
 
 .page-title-group h1 {
   color: var(--color-ink);
-  font-size: clamp(1.65rem, 2.4vw, 2.2rem);
+  font-size: var(--type-h1);
   letter-spacing: -.04em;
   line-height: 1.08;
 }
@@ -2499,6 +2623,7 @@ body {
   min-height: 92px;
   padding: 1rem 1.15rem;
   border-radius: var(--radius-card);
+  border-left: 3px solid var(--color-brand-600);
 }
 
 .stat-icon {
@@ -2601,6 +2726,7 @@ body {
 .next-step-panel {
   background: var(--color-ink);
   border-color: var(--color-ink);
+  border-left: 3px solid var(--color-warm-coral);
   box-shadow: var(--shadow-float);
 }
 
@@ -2656,8 +2782,12 @@ body {
   letter-spacing: -.025em;
 }
 
+.section-heading h2 { font-size: var(--type-h2); }
+.section-heading h3 { font-size: var(--type-h3); }
+
 .section-heading p {
   color: #778592;
+  font-size: var(--type-sm);
 }
 
 .form-card {
@@ -2877,8 +3007,6 @@ textarea.form-input {
   box-shadow: var(--shadow-card);
 }
 
-.evidence-header,
-.evidence-grid,
 .transcription-block,
 .part-score-block,
 .flag-list,
@@ -2896,10 +3024,6 @@ textarea.form-input {
 .evidence-header h2 {
   color: var(--color-ink);
   letter-spacing: -.03em;
-}
-
-.evidence-grid {
-  padding-top: 1rem;
 }
 
 .context-placeholder,
@@ -2931,10 +3055,6 @@ textarea.form-input {
 }
 
 .decision-panel {
-  margin-top: 1.2rem;
-  padding-top: 1rem;
-  padding-bottom: 1.1rem;
-  border-top: 1px solid var(--color-line);
   background: #fbfcfd;
 }
 
@@ -2978,9 +3098,31 @@ textarea.form-input {
     padding: 0 1rem;
   }
 
-  .brand-tag,
-  .global-nav {
+  .brand-tag {
     display: none;
+  }
+
+  .global-nav:not(.is-open) {
+    display: none;
+  }
+
+  .global-nav.is-open {
+    display: flex;
+    flex-direction: column;
+    position: absolute;
+    top: 62px;
+    left: 0;
+    right: 0;
+    background: white;
+    border-bottom: 1px solid var(--color-line);
+    box-shadow: var(--shadow-md);
+    padding: 0.5rem;
+    z-index: 40;
+    gap: 2px;
+  }
+
+  .mobile-nav-toggle {
+    display: flex;
   }
 
   .header-status {
@@ -2997,7 +3139,7 @@ textarea.form-input {
   }
 
   .page-title-group h1 {
-    font-size: 1.65rem;
+    /* fluid clamp() handles mobile sizing — no override needed */
   }
 
   .next-step-panel .btn,
@@ -3401,10 +3543,16 @@ textarea.form-input {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 0.85rem 1.1rem;
   cursor: pointer;
   user-select: none;
   transition: background 0.15s;
+  border: none;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
 }
 
 .review-sheet-header:hover {
@@ -3451,4 +3599,19 @@ textarea.form-input {
   margin-top: 0.75rem;
   display: flex;
   justify-content: flex-end;
+}
+
+/* 6c: Confirmation micro-feedback */
+@keyframes decision-flash {
+  0% { border-color: var(--color-emerald-600); box-shadow: 0 0 0 3px rgba(5, 150, 105, 0.25); }
+  100% { border-color: var(--color-ai-border); box-shadow: none; }
+}
+
+.decision-panel.is-flashing {
+  animation: decision-flash 0.8s ease-out;
+}
+
+.alert-fading {
+  opacity: 0;
+  transition: opacity 0.5s ease-out;
 }
