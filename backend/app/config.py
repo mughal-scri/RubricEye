@@ -4,9 +4,15 @@ import sys
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Anchored to the backend package directory (not the process working
+# directory) so the API key in backend/.env loads no matter where uvicorn,
+# pytest, or a validation script is started from. RUBRICEYE_DASHSCOPE_API_KEY
+# is the only accepted variable name; an exported env var overrides the file.
+_ENV_FILE = Path(__file__).resolve().parent.parent / ".env"
+
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="RUBRICEYE_", env_file=".env")
+    model_config = SettingsConfigDict(env_prefix="RUBRICEYE_", env_file=_ENV_FILE)
 
     data_dir: Path = Path.home() / "rubriceye_data"
     db_filename: str = "rubriceye.db"

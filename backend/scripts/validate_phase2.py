@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Manual/automated Phase 2 API validation script.
 
-Requires a real DASHSCOPE_API_KEY — this makes real, billed Qwen-VL-Max calls
-(a handful, ~$0.01-0.05 total for this small fixture). See HANDOVER.md for the
-project's known per-booklet cost baseline.
+Requires a real RUBRICEYE_DASHSCOPE_API_KEY — this makes real, billed Qwen-VL-Max
+calls (a handful, ~$0.01-0.05 total for this small fixture). See HANDOVER.md for
+the project's known per-booklet cost baseline.
 
 Usage:
-    PYTHONPATH=backend DASHSCOPE_API_KEY=<key> backend/venv/bin/python backend/scripts/validate_phase2.py
+    PYTHONPATH=backend RUBRICEYE_DASHSCOPE_API_KEY=<key> backend/venv/bin/python backend/scripts/validate_phase2.py
 """
 
 import json
@@ -15,13 +15,12 @@ import shutil
 import sys
 from pathlib import Path
 
-api_key = os.environ.get("DASHSCOPE_API_KEY") or os.environ.get("RUBRICEYE_DASHSCOPE_API_KEY")
+api_key = os.environ.get("RUBRICEYE_DASHSCOPE_API_KEY")
 if not api_key:
-    print("ERROR: DASHSCOPE_API_KEY (or RUBRICEYE_DASHSCOPE_API_KEY) is not set.")
+    print("ERROR: RUBRICEYE_DASHSCOPE_API_KEY is not set.")
     print("This script makes real, billed API calls and cannot run without a key.")
     sys.exit(1)
 
-os.environ["RUBRICEYE_DASHSCOPE_API_KEY"] = api_key
 os.environ["RUBRICEYE_DATA_DIR"] = "/tmp/rubriceye_phase2_test"
 if Path(os.environ["RUBRICEYE_DATA_DIR"]).exists():
     shutil.rmtree(os.environ["RUBRICEYE_DATA_DIR"])

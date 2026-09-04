@@ -17,7 +17,6 @@ from __future__ import annotations
 import base64
 import io
 import json
-import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -101,7 +100,7 @@ class GradedUnitResult:
 
 
 def _get_client() -> OpenAI | None:
-    api_key = settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")
+    api_key = settings.dashscope_api_key
     if not api_key:
         return None
     return OpenAI(api_key=api_key, base_url=settings.dashscope_base_url)
@@ -249,7 +248,7 @@ def _validated_scores(scores: list[dict]) -> tuple[list[dict], str | None]:
 def grade_batch(batch: list[QuestionUnit], qb_items_by_number: dict) -> list[GradedUnitResult]:
     client = _get_client()
     if client is None:
-        return _sentinel_error(batch, "DASHSCOPE_API_KEY is not configured")
+        return _sentinel_error(batch, "RUBRICEYE_DASHSCOPE_API_KEY is not configured")
 
     image_paths: list[str] = []
     for unit in batch:

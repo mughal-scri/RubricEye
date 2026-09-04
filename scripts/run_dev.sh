@@ -28,12 +28,20 @@ fi
 # --- API key sanity check -----------------------------------------------
 # Silent failure here means grading calls fail later with no obvious cause,
 # and it's easy to not notice until well into testing. Check it loudly now.
-if [ -z "$DASHSCOPE_API_KEY" ] && [ -z "$RUBRICEYE_DASHSCOPE_API_KEY" ]; then
-    echo ""
-    echo "⚠ WARNING: Neither DASHSCOPE_API_KEY nor RUBRICEYE_DASHSCOPE_API_KEY is set."
-    echo "  The app will start, but grading calls will fail until one is exported"
-    echo "  or added to a .env file at the project root."
-    echo ""
+# The backend reads the key from RUBRICEYE_DASHSCOPE_API_KEY only: an exported
+# env var (possibly set by a root .env above) or backend/.env, which the app
+# config loads directly from its anchored path.
+if [ -z "$RUBRICEYE_DASHSCOPE_API_KEY" ]; then
+    if [ -f "$PROJECT_ROOT/backend/.env" ] && \
+       grep -Eq "^[[:space:]]*RUBRICEYE_DASHSCOPE_API_KEY=[[:space:]]*[^[:space:]#]" "$PROJECT_ROOT/backend/.env"; then
+        : # Key configured in backend/.env -- the backend loads it itself.
+    else
+        echo ""
+        echo "⚠ WARNING: RUBRICEYE_DASHSCOPE_API_KEY is not set."
+        echo "  The app will start, but grading calls will fail until the key is"
+        echo "  exported or written to backend/.env."
+        echo ""
+    fi
 fi
 
 # --- Phase 2: local API token -------------------------------------------

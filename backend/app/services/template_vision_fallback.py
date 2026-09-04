@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import json
-import os
 import re
 from dataclasses import dataclass
 
@@ -90,7 +89,7 @@ def _parse_regions(raw: str, image_width: int | None = None, image_height: int |
 
 
 def extract_regions_with_vision(page_image_paths: list[str]) -> VisionDerivationResult:
-    api_key = settings.dashscope_api_key or os.environ.get("DASHSCOPE_API_KEY")
+    api_key = settings.dashscope_api_key
     if not api_key:
         return VisionDerivationResult(pages={}, alignment_reference={}, confidence="low")
 

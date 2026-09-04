@@ -80,11 +80,22 @@ cd ..
 
 ## Configuration
 
-Copy the example environment file if present and set only the values needed for your deployment. Common settings are:
+All backend settings are read from environment variables with the `RUBRICEYE_` prefix. The only required secret is the DashScope (Qwen) API key, and it has exactly one variable name:
+
+```text
+RUBRICEYE_DASHSCOPE_API_KEY=your-key
+```
+
+The simplest setup is to put the key in `backend/.env` (gitignored — create the file if it does not exist yet):
+
+```bash
+echo "RUBRICEYE_DASHSCOPE_API_KEY=your-key" > backend/.env
+```
+
+The backend loads `backend/.env` regardless of the directory it is started from. Exporting `RUBRICEYE_DASHSCOPE_API_KEY` as an environment variable also works and overrides the file, and `./scripts/run_dev.sh` additionally honors a root `.env` file. Other common settings:
 
 ```text
 RUBRICEYE_DATA_DIR=/path/to/private/runtime-data
-DASHSCOPE_API_KEY=your-key
 RUBRICEYE_GRADING_MODEL=qwen-vl-max
 RUBRICEYE_STUDIO_MODEL=qwen3.7-plus
 ```
@@ -99,7 +110,7 @@ From the repository root:
 ./scripts/run_dev.sh
 ```
 
-The helper starts the API and web app using the local environment. Use `./scripts/run_dev.sh --electron` when testing the desktop shell. The default development ports are 8765 (API) and 5173 (frontend).
+The helper starts the API and web app, loading your key from `backend/.env` or the environment — no manual exports needed once the key is in `backend/.env`. Use `./scripts/run_dev.sh --electron` when testing the desktop shell. The default development ports are 8765 (API) and 5173 (frontend).
 
 ## Testing
 
@@ -124,7 +135,7 @@ Some validation helpers invoke paid live-model APIs. Run those only deliberately
 
 - Runtime files can remain on the local machine.
 - Identity signals are excluded from grading prompts and are not sent as unsolicited telemetry.
-- API credentials are read from environment variables, not source files.
+- API credentials live only in the local environment (`backend/.env` or environment variables) and are excluded from version control.
 - Rubrics are locked and changes, confirmations, and corrections are reviewable.
 - Alignment, overflow, mapping, and low-confidence attempted-status decisions can be confirmed by an examiner before grading.
 
