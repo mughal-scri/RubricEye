@@ -33,7 +33,7 @@ fi
 # config loads directly from its anchored path.
 if [ -z "$RUBRICEYE_DASHSCOPE_API_KEY" ]; then
     if [ -f "$PROJECT_ROOT/backend/.env" ] && \
-       grep -Eq "^[[:space:]]*RUBRICEYE_DASHSCOPE_API_KEY=[[:space:]]*[^[:space:]#]" "$PROJECT_ROOT/backend/.env"; then
+       grep -Eq "^[[:space:]]*RUBRICEYE_DASHSCOPE_API_KEY=[[:space:]]*['\"]?[^'\"[:space:]#]" "$PROJECT_ROOT/backend/.env"; then
         : # Key configured in backend/.env -- the backend loads it itself.
     else
         echo ""

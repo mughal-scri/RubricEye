@@ -1,7 +1,7 @@
 import { ArrowLeft, CheckCircle2, Clock3, ClipboardCheck, Eye, FileCheck2, FileDown, FileUp, GraduationCap, Layers, ListChecks, ShieldLock, Sparkles, Trash2, Upload } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, getProjectReviewQueue, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, pollGradingJob, ProjectDetail as ProjectDetailType, restoreAnswerSheet } from "../api/client";
+import { AnswerSheetSummary, deleteAnswerSheet, fileUrl, getProject, getProjectReviewQueue, gradeAnswerSheet, hardDeleteAnswerSheet, listAnswerSheets, listDeletedAnswerSheets, listQuestionBank, listQuestionGroups, pollGradingJob, ProjectDetail as ProjectDetailType, QuestionGroup, restoreAnswerSheet } from "../api/client";
 import { errorMessage, formatDate, gradingStatusLabel } from "../ui";
 import BrandedLoader from "../components/BrandedLoader";
 
@@ -11,6 +11,7 @@ export default function ProjectDetailPage() {
   const [sheets, setSheets] = useState<AnswerSheetSummary[]>([]);
   const [deletedSheets, setDeletedSheets] = useState<AnswerSheetSummary[]>([]);
   const [questionBankCount, setQuestionBankCount] = useState(0);
+  const [questionGroups, setQuestionGroups] = useState<QuestionGroup[]>([]);
   const [reviewPending, setReviewPending] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -21,12 +22,13 @@ export default function ProjectDetailPage() {
     if (!projectId) return;
     setLoading(true);
     setError("");
-    Promise.all([getProject(projectId), listAnswerSheets(projectId), listDeletedAnswerSheets(projectId), listQuestionBank(projectId), getProjectReviewQueue(projectId).catch(() => ({ total_pending: 0, sheets: [] }))])
-      .then(([projectData, sheetData, deletedSheetData, qbData, queueData]) => {
+    Promise.all([getProject(projectId), listAnswerSheets(projectId), listDeletedAnswerSheets(projectId), listQuestionBank(projectId), listQuestionGroups(projectId), getProjectReviewQueue(projectId).catch(() => ({ total_pending: 0, sheets: [] }))])
+      .then(([projectData, sheetData, deletedSheetData, qbData, groupData, queueData]) => {
         setProject(projectData);
         setSheets(sheetData);
         setDeletedSheets(deletedSheetData);
         setQuestionBankCount(qbData.items.length);
+        setQuestionGroups(groupData);
         setReviewPending(queueData.total_pending);
       })
       .catch((err) => setError(errorMessage(err)))
@@ -37,15 +39,18 @@ export default function ProjectDetailPage() {
 
   const ready = Boolean(project?.template_map_confirmed && project?.question_bank_confirmed);
   const pendingSheets = useMemo(() => sheets.filter((sheet) => sheet.grading_status === "review_required").length, [sheets]);
+  const groupsNeedReview = questionGroups.some((group) => group.suggestion_status === "provisional");
   const nextStep = project?.rubric_source_mode === "studio" && !project.rubric_locked
     ? { title: "Review rubric alignment before locking", body: "Confirm each Studio criterion against a canonical question or mark it not applicable before approval.", href: `/projects/${projectId}/rubric-alignment`, label: "Review alignment" }
     : !project?.template_map_confirmed
     ? { title: "Review the template map before uploading", body: "The detected regions must be confirmed before answer sheets can be prepared.", href: `/projects/${projectId}/template-map`, label: "Review template map" }
     : !project.question_bank_confirmed
       ? { title: "Confirm the question bank before grading", body: "Review question numbers, marks, and key points so grading uses the intended criteria.", href: `/projects/${projectId}/question-bank`, label: "Review question bank" }
-      : pendingSheets > 0
-        ? { title: `${pendingSheets} sheet${pendingSheets === 1 ? "" : "s"} ready for examiner review`, body: "AI grading is complete, but these results are not final until the examiner confirms them.", href: `/projects/${projectId}`, label: "Review answer sheets" }
-        : { title: "Assessment setup is ready", body: "Upload an answer sheet to begin preparation and grading.", href: `/projects/${projectId}/upload`, label: "Upload answer sheet" };
+      : groupsNeedReview
+        ? { title: "Accept the suggested question groups", body: "Confirm or delete each provisional group so the candidate’s effective maximum is correct before grading.", href: `/projects/${projectId}/question-groups`, label: "Review question groups" }
+        : pendingSheets > 0
+          ? { title: `${pendingSheets} sheet${pendingSheets === 1 ? "" : "s"} ready for examiner review`, body: "AI grading is complete, but these results are not final until the examiner confirms them.", href: `/projects/${projectId}`, label: "Review answer sheets" }
+          : { title: "Assessment setup is ready", body: "Upload an answer sheet to begin preparation and grading.", href: `/projects/${projectId}/upload`, label: "Upload answer sheet" };
 
   const removeSheet = async (sheet: AnswerSheetSummary) => {
     if (!projectId || !window.confirm(`Move answer sheet Roll ${sheet.roll_number} to Trash? It can be restored later.`)) return;

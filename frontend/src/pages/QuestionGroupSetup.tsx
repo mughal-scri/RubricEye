@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeft, CheckCircle2, Info, Plus, Trash2 } from "lucide-react";
+import { AlertTriangle, ArrowLeft, ArrowRight, CheckCircle2, Info, Plus, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { confirmQuestionGroup, createQuestionGroup, deleteQuestionGroup, listQuestionBank, listQuestionGroups, QuestionBankItem, QuestionGroup } from "../api/client";
@@ -69,7 +69,7 @@ export default function QuestionGroupSetup() {
 
   return <div>
     <div className="breadcrumb"><Link to={`/projects/${projectId}`}><ArrowLeft size={14} /> Back to project</Link><span aria-hidden="true">/</span><span>Question groups</span></div>
-    <div className="page-header"><div className="page-title-group"><div className="eyebrow">Assessment setup</div><h1>Question groups</h1><p>Review detected choice structures, then define or confirm the rules used for scoring.</p></div></div>
+    <div className="page-header"><div className="page-title-group"><div className="eyebrow">Assessment setup</div><h1>Question groups</h1><p>Review detected choice structures, then define or confirm the rules used for scoring.</p></div><Link to={`/projects/${projectId}`} className="btn btn-primary"><ArrowRight size={16} /> Done — Go to Dashboard</Link></div>
     {error && <div className="alert alert-error" role="alert"><AlertTriangle size={17} /><span>{error}</span></div>}
     {message && <div className="alert alert-success" role="status"><CheckCircle2 size={17} /><span>{message}</span></div>}
     <div className="info-panel"><Info size={17} /><div><strong>How choice questions work</strong><p>For a choose-N-of-M group, the first N attempted items in ascending question order are scored. A crossed-out answer counts as an attempt and consumes a slot. Suggested groups remain provisional until you confirm them.</p></div></div>

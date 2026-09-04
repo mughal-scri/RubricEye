@@ -16,12 +16,14 @@ from app.services.grading_worker import grading_worker_loop, recover_stale_jobs
 from app.services.storage import ensure_data_dirs
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+logger = logging.getLogger(__name__)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     ensure_data_dirs()
     settings.ensure_token()
+    logger.info("DashScope API key: %s", "configured" if settings.dashscope_api_key else "NOT configured")
     init_db()
     await recover_stale_jobs()
 

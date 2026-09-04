@@ -82,7 +82,7 @@ export default function QuestionBankSetup() {
       if (savedRows.some((saved) => !saved)) return;
       const result = await confirmQuestionBank(projectId);
       setConfirmed(true); setWarning(result.marks_mismatch_warning ?? null); setStructureStatus(result.structure_status ?? "unresolved"); setEffectiveTotal(result.effective_total ?? null); setRawTotal(result.total_marks_extracted); setStatedTotal(result.total_marks_on_paper); setMessage(result.marks_mismatch_warning ? "Question bank locked, but paper structure still needs review." : "Question bank confirmed and locked.");
-      if (!result.marks_mismatch_warning) navigate(`/projects/${projectId}`);
+      if (!result.marks_mismatch_warning) navigate(`/projects/${projectId}/question-groups`);
     } catch (err) {
       const detail = errorMessage(err);
       const match = detail.match(/Unmatched labels:\s*(.*?)\. This label/i);

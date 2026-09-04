@@ -18,7 +18,6 @@ from app.services.pdf_validation import read_validated_upload
 from app.services.pdf_pipeline import pdf_to_ordered_images
 from app.services.question_bank_extractor import extract_question_bank
 from app.services.rubric_studio import materialize_draft
-from app.services.rubric_pdf import render_text_rubric_pdf
 from app.services.template_derivation import derive_template_map, regions_to_json
 
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -134,17 +133,14 @@ async def create_project(
     question_paper: UploadFile = File(...),
     blank_booklet: UploadFile = File(...),
     rubric_mode: str = Form("upload"),
-    rubric_text: str | None = Form(None),
     rubric_draft_json: str | None = Form(None),
     rubric_draft_reviewed: bool = Form(False),
     db: Session = Depends(get_db),
 ) -> ProjectDetail:
-    if rubric_mode not in {"upload", "text", "studio"}:
-        raise HTTPException(status_code=400, detail="rubric_mode must be 'upload', 'text', or 'studio'.")
+    if rubric_mode not in {"upload", "studio"}:
+        raise HTTPException(status_code=400, detail="rubric_mode must be 'upload' or 'studio'.")
     if rubric_mode == "upload" and rubric is None:
         raise HTTPException(status_code=400, detail="rubric is required when rubric_mode is 'upload'.")
-    if rubric_mode == "text" and (not rubric_text or not rubric_text.strip()):
-        raise HTTPException(status_code=400, detail="rubric_text is required when rubric_mode is 'text'.")
     if rubric_mode == "studio" and not rubric_draft_json:
         raise HTTPException(status_code=400, detail="A reviewed Rubric Studio draft is required when rubric_mode is 'studio'.")
     if not name.strip():
@@ -184,9 +180,6 @@ async def create_project(
     blank_booklet_path = project_dir / "blank_booklet.pdf"
     if rubric_bytes is not None:
         storage.save_upload(rubric_path, rubric_bytes)
-    elif rubric_mode == "text":
-        storage.atomic_write_text(project_dir / "rubric_source.txt", rubric_text.strip())
-        render_text_rubric_pdf(rubric_path, project_name=name.strip(), rubric_text=rubric_text)
     else:
         storage.atomic_write_bytes(rubric_path, b"%PDF-1.4\n% Rubric Studio draft pending\n")
     storage.save_upload(question_paper_path, question_paper_bytes)
@@ -209,7 +202,7 @@ async def create_project(
             db.commit()
 
     try:
-        if rubric_mode in {"upload", "text"}:
+        if rubric_mode == "upload":
             _run_question_bank_extraction(db, project)
         else:
             # A staged draft may lock only when its submitted criteria carry explicit
